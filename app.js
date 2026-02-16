@@ -698,6 +698,9 @@ function initTheme() {
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
+  // Force repaint — some mobile WebKit won't update CSS vars without this
+  void document.documentElement.offsetHeight;
+  document.body.style.backgroundColor = theme === 'light' ? '#f5f5f5' : '#111111';
   // Update meta theme-color for mobile browser chrome
   const metaTheme = document.querySelector('meta[name="theme-color"]');
   if (metaTheme) {
