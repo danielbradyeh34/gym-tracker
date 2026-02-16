@@ -888,7 +888,7 @@ function renderDashboard() {
     <div class="dash-section-title">Activity <span>12 weeks</span></div>
     <div class="cal-heatmap">
       <div class="cal-labels">
-        <span>M</span><span></span><span>W</span><span></span><span>F</span><span></span><span>S</span>
+        <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
       </div>
       <div class="cal-grid">`;
   calendar.forEach(week => {
