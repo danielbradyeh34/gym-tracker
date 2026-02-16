@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#111111">
+  <title>Gym Tracker</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Nav -->
+    <nav id="bottom-nav">
+      <button class="nav-btn active" data-screen="home">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+        <span>Workouts</span>
+      </button>
+      <button class="nav-btn" data-screen="history">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>History</span>
+      </button>
+      <button class="nav-btn" data-screen="progress">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Progress</span>
+      </button>
+    </nav>
+
+    <!-- Home Screen -->
+    <div id="screen-home" class="screen active">
+      <header class="screen-header">
+        <h1>Strength Factory</h1>
+        <p class="subtitle">Phase 1 &mdash; Johnny &amp; Dan</p>
+      </header>
+      <div class="workout-grid" id="workout-grid"></div>
+    </div>
+
+    <!-- Workout Screen -->
+    <div id="screen-workout" class="screen">
+      <header class="screen-header">
+        <button id="back-btn" class="icon-btn">&larr;</button>
+        <h1 id="workout-title"></h1>
+        <button id="finish-btn" class="finish-btn">Finish</button>
+      </header>
+      <div id="workout-content"></div>
+    </div>
+
+    <!-- History Screen -->
+    <div id="screen-history" class="screen">
+      <header class="screen-header">
+        <h1>History</h1>
+      </header>
+      <div id="history-content"></div>
+    </div>
+
+    <!-- Progress Screen -->
+    <div id="screen-progress" class="screen">
+      <header class="screen-header">
+        <h1>Progress</h1>
+      </header>
+      <div id="progress-filters"></div>
+      <div id="progress-content"></div>
+    </div>
+
+    <!-- Rest Timer Overlay -->
+    <div id="rest-timer" class="timer-overlay hidden">
+      <div class="timer-card">
+        <p class="timer-label">Rest</p>
+        <p class="timer-display" id="timer-display">0:00</p>
+        <div class="timer-buttons">
+          <button class="timer-btn" id="timer-skip">Skip</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
