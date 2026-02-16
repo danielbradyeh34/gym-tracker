@@ -46,6 +46,7 @@ $('#back-btn').addEventListener('click', () => {
 
 // --- Home screen ---
 function renderHome() {
+  renderDashboard();
   const grid = $('#workout-grid');
   const history = Storage.get('workoutHistory') || [];
   grid.innerHTML = WORKOUTS.map(w => {
@@ -688,6 +689,222 @@ function confirmAction(title, message, onConfirm) {
     onConfirm();
     overlay.remove();
   });
+}
+
+// --- Dashboard ---
+const WORKOUT_MUSCLES = {
+  push: ['chest', 'shoulders', 'triceps'],
+  pull: ['back', 'biceps'],
+  legs: ['quads', 'hamstrings', 'glutes', 'core']
+};
+
+function getWeekBounds() {
+  const now = new Date();
+  const day = now.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() + mondayOffset);
+  return { start: monday.getTime(), end: monday.getTime() + 7 * 86400000 - 1 };
+}
+
+function calcVolume(workouts) {
+  let total = 0;
+  workouts.forEach(w => {
+    Object.values(w.exercises).forEach(ex => {
+      ex.sets.forEach(s => {
+        total += (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0);
+      });
+    });
+  });
+  return total;
+}
+
+function getWeeklyStats(history) {
+  const { start, end } = getWeekBounds();
+  const thisWeek = history.filter(h => h.timestamp >= start && h.timestamp <= end);
+  const lastWeek = history.filter(h => h.timestamp >= start - 7 * 86400000 && h.timestamp < start);
+  const thisVolume = calcVolume(thisWeek);
+  const lastVolume = calcVolume(lastWeek);
+  const volumeChange = lastVolume > 0 ? Math.round((thisVolume - lastVolume) / lastVolume * 100) : 0;
+  return { count: thisWeek.length, target: 4, thisVolume, lastVolume, volumeChange };
+}
+
+function getCurrentStreak(history) {
+  if (history.length === 0) return 0;
+  const days = new Set();
+  history.forEach(h => {
+    const d = new Date(h.timestamp);
+    days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+  });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let check = new Date(today);
+  const todayKey = `${check.getFullYear()}-${check.getMonth()}-${check.getDate()}`;
+  if (!days.has(todayKey)) check.setDate(check.getDate() - 1);
+  let streak = 0;
+  while (true) {
+    const key = `${check.getFullYear()}-${check.getMonth()}-${check.getDate()}`;
+    if (days.has(key)) { streak++; check.setDate(check.getDate() - 1); }
+    else break;
+  }
+  return streak;
+}
+
+function getMuscleActivity(history) {
+  const cutoff = Date.now() - 7 * 86400000;
+  const recent = history.filter(h => h.timestamp >= cutoff);
+  const activity = {};
+  ['chest', 'shoulders', 'triceps', 'back', 'biceps', 'quads', 'hamstrings', 'glutes', 'core'].forEach(m => activity[m] = 0);
+  recent.forEach(w => {
+    const type = w.workoutId.replace(/[0-9]/g, '');
+    (WORKOUT_MUSCLES[type] || []).forEach(m => activity[m]++);
+  });
+  return activity;
+}
+
+function getCalendarData(history) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = today.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const thisMon = new Date(today);
+  thisMon.setDate(thisMon.getDate() + mondayOffset);
+  const startMon = new Date(thisMon);
+  startMon.setDate(startMon.getDate() - 11 * 7);
+  const dayMap = {};
+  history.forEach(h => {
+    const d = new Date(h.timestamp);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    dayMap[key] = (dayMap[key] || 0) + 1;
+  });
+  const weeks = [];
+  const current = new Date(startMon);
+  for (let w = 0; w < 12; w++) {
+    const week = [];
+    for (let d = 0; d < 7; d++) {
+      const key = `${current.getFullYear()}-${current.getMonth()}-${current.getDate()}`;
+      week.push({ count: dayMap[key] || 0, future: current > today });
+      current.setDate(current.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+function renderDashboard() {
+  const dashboard = $('#dashboard');
+  if (!dashboard) return;
+  const history = Storage.get('workoutHistory') || [];
+  const stats = getWeeklyStats(history);
+  const streak = getCurrentStreak(history);
+  const muscles = getMuscleActivity(history);
+  const calendar = getCalendarData(history);
+  const sorted = [...history].sort((a, b) => b.timestamp - a.timestamp);
+  const last = sorted[0];
+
+  let html = '';
+
+  // Stats row
+  const pct = Math.min(stats.count / stats.target, 1);
+  const circ = 2 * Math.PI * 32;
+  const offset = circ - pct * circ;
+  const volStr = stats.thisVolume >= 1000 ? `${(stats.thisVolume / 1000).toFixed(1)}t` : `${Math.round(stats.thisVolume)}kg`;
+  const changeHtml = stats.volumeChange !== 0 && stats.lastVolume > 0
+    ? `<span class="dash-change ${stats.volumeChange > 0 ? 'up' : 'down'}">${stats.volumeChange > 0 ? '+' : ''}${stats.volumeChange}%</span>`
+    : '';
+
+  html += `<div class="dash-stats">
+    <div class="dash-stat">
+      <div class="dash-ring-wrap">
+        <svg viewBox="0 0 72 72" class="dash-ring">
+          <circle cx="36" cy="36" r="32" fill="none" stroke="var(--surface3)" stroke-width="5"/>
+          <circle cx="36" cy="36" r="32" fill="none" stroke="var(--accent)" stroke-width="5"
+            stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"
+            stroke-linecap="round" transform="rotate(-90 36 36)"/>
+        </svg>
+        <div class="dash-ring-text">${stats.count}<span>/${stats.target}</span></div>
+      </div>
+      <div class="dash-stat-label">This Week</div>
+    </div>
+    <div class="dash-stat">
+      <div class="dash-stat-val">${volStr}</div>
+      ${changeHtml}
+      <div class="dash-stat-label">Volume</div>
+    </div>
+    <div class="dash-stat">
+      <div class="dash-stat-val">${streak}<span class="dash-fire">&#128293;</span></div>
+      <div class="dash-stat-label">Streak</div>
+    </div>
+  </div>`;
+
+  // Last workout card
+  if (last) {
+    const type = last.workoutId.replace(/[0-9]/g, '');
+    const ago = formatDate(last.timestamp);
+    const exCount = Object.keys(last.exercises).length;
+    const setCount = Object.values(last.exercises).reduce((sum, ex) => sum + ex.sets.length, 0);
+    html += `<div class="dash-last" data-type="${type}">
+      <div class="dash-last-top">
+        <span class="dash-last-badge">${type.toUpperCase()}</span>
+        <span class="dash-last-ago">${ago}</span>
+      </div>
+      <div class="dash-last-name">${last.workoutName}</div>
+      <div class="dash-last-meta">${exCount} exercises &middot; ${setCount} sets</div>
+    </div>`;
+  }
+
+  // Muscle activity bars
+  const displayGroups = [
+    { key: 'chest', label: 'Chest', color: 'var(--push)' },
+    { key: 'back', label: 'Back', color: 'var(--pull)' },
+    { key: 'shoulders', label: 'Shoulders', color: 'var(--push)' },
+    { key: 'arms', label: 'Arms', color: 'var(--accent)', calc: () => Math.max(muscles.biceps || 0, muscles.triceps || 0) },
+    { key: 'quads', label: 'Quads', color: 'var(--legs)' },
+    { key: 'hamstrings', label: 'Hams', color: 'var(--legs)' },
+    { key: 'glutes', label: 'Glutes', color: 'var(--legs)' },
+    { key: 'core', label: 'Core', color: 'var(--legs)' },
+  ];
+  const maxMuscle = Math.max(...displayGroups.map(g => g.calc ? g.calc() : (muscles[g.key] || 0)), 1);
+
+  html += `<div class="dash-section">
+    <div class="dash-section-title">Muscles <span>7 days</span></div>
+    <div class="muscle-bars">`;
+  displayGroups.forEach(g => {
+    const count = g.calc ? g.calc() : (muscles[g.key] || 0);
+    const barPct = (count / maxMuscle) * 100;
+    html += `<div class="muscle-bar">
+      <span class="muscle-name">${g.label}</span>
+      <div class="muscle-track">
+        <div class="muscle-fill" style="width:${count > 0 ? Math.max(barPct, 8) : 0}%;background:${g.color}"></div>
+      </div>
+      <span class="muscle-count">${count || '-'}</span>
+    </div>`;
+  });
+  html += `</div></div>`;
+
+  // Calendar heatmap
+  html += `<div class="dash-section">
+    <div class="dash-section-title">Activity <span>12 weeks</span></div>
+    <div class="cal-heatmap">
+      <div class="cal-labels">
+        <span>M</span><span></span><span>W</span><span></span><span>F</span><span></span><span>S</span>
+      </div>
+      <div class="cal-grid">`;
+  calendar.forEach(week => {
+    html += `<div class="cal-week">`;
+    week.forEach(day => {
+      const level = day.future ? 'future' : day.count === 0 ? 'l0' : day.count === 1 ? 'l1' : 'l2';
+      html += `<div class="cal-day ${level}"></div>`;
+    });
+    html += `</div>`;
+  });
+  html += `</div></div></div>`;
+
+  // Section label before workout grid
+  html += `<div class="dash-grid-label">Start a Workout</div>`;
+
+  dashboard.innerHTML = html;
 }
 
 // --- Theme ---

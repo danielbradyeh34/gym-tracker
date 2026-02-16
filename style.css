@@ -801,6 +801,214 @@ html, body {
 }
 .summary-done:active { opacity: 0.8; }
 
+/* Dashboard */
+.dash-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dash-stat {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  padding: 14px 8px;
+  text-align: center;
+}
+.dash-stat-val {
+  font-size: 26px;
+  font-weight: 700;
+}
+.dash-stat-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+.dash-fire { font-size: 20px; }
+.dash-change {
+  font-size: 12px;
+  font-weight: 600;
+  display: block;
+  margin-top: 2px;
+}
+.dash-change.up { color: #43a047; }
+.dash-change.down { color: #e53935; }
+
+/* Weekly ring */
+.dash-ring-wrap {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 4px;
+}
+.dash-ring { width: 100%; height: 100%; }
+.dash-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+.dash-ring-text span {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Last workout card */
+.dash-last {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.dash-last::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 3px;
+}
+.dash-last[data-type="push"]::before { background: var(--push); }
+.dash-last[data-type="pull"]::before { background: var(--pull); }
+.dash-last[data-type="legs"]::before { background: var(--legs); }
+.dash-last-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.dash-last-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: white;
+}
+.dash-last[data-type="push"] .dash-last-badge { background: var(--push); }
+.dash-last[data-type="pull"] .dash-last-badge { background: var(--pull); }
+.dash-last[data-type="legs"] .dash-last-badge { background: var(--legs); }
+.dash-last-ago {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.dash-last-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+.dash-last-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Dashboard sections */
+.dash-section {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.dash-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.dash-section-title span {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* Muscle activity bars */
+.muscle-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.muscle-bar {
+  display: grid;
+  grid-template-columns: 72px 1fr 24px;
+  align-items: center;
+  gap: 8px;
+}
+.muscle-name {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.muscle-track {
+  height: 8px;
+  background: var(--surface3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.muscle-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.muscle-count {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Calendar heatmap */
+.cal-heatmap {
+  display: flex;
+  gap: 3px;
+}
+.cal-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cal-labels span {
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cal-grid {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+}
+.cal-week {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.cal-day {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  min-height: 12px;
+}
+.cal-day.l0 { background: var(--surface3); }
+.cal-day.l1 { background: var(--accent); opacity: 0.55; }
+.cal-day.l2 { background: var(--accent); }
+.cal-day.future { background: transparent; }
+
+/* Start a workout label */
+.dash-grid-label {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 0 10px;
+}
+
 /* Settings */
 .settings-list {
   display: flex;
