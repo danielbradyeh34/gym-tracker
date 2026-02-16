@@ -1009,6 +1009,13 @@ html, body {
 }
 
 /* Settings */
+.settings-version {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 24px 0 8px;
+}
+
 .settings-list {
   display: flex;
   flex-direction: column;
