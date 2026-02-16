@@ -690,7 +690,34 @@ function confirmAction(title, message, onConfirm) {
   });
 }
 
+// --- Theme ---
+function initTheme() {
+  const saved = Storage.get('theme') || 'dark';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  // Update meta theme-color for mobile browser chrome
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.content = theme === 'light' ? '#f5f5f5' : '#111111';
+  }
+  // Update toggle icon
+  const icon = $('#theme-icon');
+  if (icon) icon.textContent = theme === 'dark' ? '\u263E' : '\u2600';
+  Storage.set('theme', theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+$('#theme-toggle').addEventListener('click', toggleTheme);
+
 // --- Init ---
+initTheme();
 renderHome();
 
 // Register service worker

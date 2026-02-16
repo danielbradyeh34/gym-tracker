@@ -1,6 +1,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-:root {
+:root, [data-theme="dark"] {
   --bg: #111111;
   --surface: #1a1a1a;
   --surface2: #222222;
@@ -15,6 +15,21 @@
   --border: #333333;
   --radius: 12px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+[data-theme="light"] {
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface2: #f0f0f0;
+  --surface3: #e8e8e8;
+  --text: #1a1a1a;
+  --text-dim: #666666;
+  --accent: #d32f2f;
+  --accent-glow: rgba(211, 47, 47, 0.2);
+  --push: #d32f2f;
+  --pull: #1565c0;
+  --legs: #2e7d32;
+  --border: #dddddd;
 }
 
 html, body {
@@ -785,3 +800,100 @@ html, body {
   cursor: pointer;
 }
 .summary-done:active { opacity: 0.8; }
+
+/* Settings */
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-item {
+  background: var(--surface);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.settings-item-label {
+  font-size: 16px;
+  font-weight: 600;
+}
+.settings-item-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Theme toggle */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+}
+.theme-toggle-icon {
+  font-size: 20px;
+}
+.theme-toggle-track {
+  width: 48px;
+  height: 28px;
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  position: relative;
+  transition: background 0.2s;
+}
+[data-theme="light"] .theme-toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.theme-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+[data-theme="light"] .theme-toggle-thumb {
+  transform: translateX(20px);
+  background: white;
+}
+
+/* Light mode overrides for elements with hardcoded colors */
+[data-theme="light"] .exercise-notes {
+  border-left-color: var(--accent);
+}
+[data-theme="light"] .last-session {
+  background: rgba(30, 136, 229, 0.08);
+  border-color: rgba(30, 136, 229, 0.2);
+  color: #1565c0;
+}
+[data-theme="light"] .last-session-label {
+  color: #0d47a1;
+}
+[data-theme="light"] .set-input::placeholder {
+  color: #aaa;
+}
+[data-theme="light"] .timer-overlay {
+  background: rgba(255,255,255,0.9);
+}
+[data-theme="light"] .timer-card {
+  color: var(--text);
+}
+[data-theme="light"] .pr-banner {
+  color: #1a1a1a;
+}
+[data-theme="light"] .summary-overlay {
+  background: rgba(255,255,255,0.95);
+}
+[data-theme="light"] .confirm-overlay {
+  background: rgba(255,255,255,0.9);
+}
