@@ -272,6 +272,27 @@ html, body {
   color: var(--text);
 }
 
+/* Last Session Banner */
+.last-session {
+  background: rgba(30, 136, 229, 0.12);
+  border: 1px solid rgba(30, 136, 229, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #7bb8ea;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.last-session-label {
+  color: #5a9fd4;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* Sets Table */
 .sets-table {
   width: 100%;

@@ -136,13 +136,13 @@ function renderWorkout() {
   html += '<p class="section-label" style="margin-top:20px">Working Sets</p>';
   w.exercises.forEach(ex => {
     const numSets = parseSetsCount(ex.setsConfig);
+    const lastSession = getLastSession(w.id, ex.order);
     if (!currentSession[ex.order]) {
-      // Pre-fill with last session's weights
-      const lastWeights = getLastWeights(w.id, ex.order, numSets);
+      // Pre-fill with last session's weights AND reps
       currentSession[ex.order] = {
         sets: Array.from({ length: numSets }, (_, i) => ({
-          weight: lastWeights[i] || '',
-          reps: '',
+          weight: (lastSession && lastSession.sets[i]?.weight) || '',
+          reps: (lastSession && lastSession.sets[i]?.reps) || '',
           done: false
         }))
       };
@@ -150,6 +150,14 @@ function renderWorkout() {
     const session = currentSession[ex.order];
     const allDone = session.sets.every(s => s.done);
     const expanded = !allDone;
+
+    // Build "last time" summary
+    let lastTimeHtml = '';
+    if (lastSession) {
+      const dateStr = formatDate(lastSession.date);
+      const setsStr = lastSession.sets.map(s => `${s.weight || '?'}kg &times; ${s.reps || '?'}`).join(' &nbsp;/&nbsp; ');
+      lastTimeHtml = `<div class="last-session"><span class="last-session-label">Last (${dateStr}):</span> ${setsStr}</div>`;
+    }
 
     html += `<div class="exercise-card ${expanded ? 'expanded' : ''} ${allDone ? 'completed' : ''}" data-exercise="${ex.order}">
       <div class="exercise-header">
@@ -165,6 +173,7 @@ function renderWorkout() {
         <div class="exercise-chevron">&#9656;</div>
       </div>
       <div class="exercise-body">
+        ${lastTimeHtml}
         ${ex.notes ? `<div class="exercise-notes"><strong>Coach:</strong> ${ex.notes}</div>` : ''}
         <div class="sets-table">
           <div class="sets-header">
@@ -490,13 +499,16 @@ function parseRestSeconds(rest) {
   return 90;
 }
 
-function getLastWeights(workoutId, exerciseOrder, numSets) {
+function getLastSession(workoutId, exerciseOrder) {
   const history = Storage.get('workoutHistory') || [];
   const last = history
     .filter(h => h.workoutId === workoutId)
     .sort((a, b) => b.timestamp - a.timestamp)[0];
-  if (!last || !last.exercises[exerciseOrder]) return [];
-  return last.exercises[exerciseOrder].sets.map(s => s.weight);
+  if (!last || !last.exercises[exerciseOrder]) return null;
+  return {
+    date: last.timestamp,
+    sets: last.exercises[exerciseOrder].sets
+  };
 }
 
 function formatDate(ts) {
