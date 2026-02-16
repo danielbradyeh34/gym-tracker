@@ -970,11 +970,11 @@ html, body {
 .cal-labels {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 .cal-labels span {
   width: 14px;
-  height: 14px;
+  height: 16px;
   font-size: 9px;
   color: var(--text-dim);
   display: flex;
@@ -983,19 +983,18 @@ html, body {
 }
 .cal-grid {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
 }
 .cal-week {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
 }
 .cal-day {
-  aspect-ratio: 1;
-  border-radius: 2px;
-  min-height: 12px;
+  height: 16px;
+  border-radius: 3px;
 }
 .cal-day.l0 { background: var(--surface3); }
 .cal-day.l1 { background: var(--accent); opacity: 0.55; }
