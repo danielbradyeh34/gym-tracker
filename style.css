@@ -299,8 +299,8 @@ html, body {
 }
 .sets-header {
   display: grid;
-  grid-template-columns: 40px 1fr 1fr 50px;
-  gap: 8px;
+  grid-template-columns: 32px 1fr 70px 40px;
+  gap: 6px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -310,8 +310,8 @@ html, body {
 }
 .set-row {
   display: grid;
-  grid-template-columns: 40px 1fr 1fr 50px;
-  gap: 8px;
+  grid-template-columns: 32px 1fr 70px 40px;
+  gap: 6px;
   align-items: center;
   margin-bottom: 8px;
 }
@@ -321,12 +321,44 @@ html, body {
   color: var(--text-dim);
   text-align: center;
 }
+/* Weight stepper */
+.weight-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.step-btn {
+  width: 36px;
+  height: 40px;
+  border: 1px solid var(--border);
+  background: var(--surface3);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.step-down { border-radius: 8px 0 0 8px; }
+.step-up { border-radius: 0 8px 8px 0; }
+.step-btn:active { background: var(--accent); color: white; }
+
+.weight-stepper .set-input {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  padding: 10px 4px;
+}
+
 .set-input {
   background: var(--surface3);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 10px 8px;
   font-size: 16px;
   width: 100%;
   text-align: center;
@@ -339,6 +371,9 @@ html, body {
 .set-input::placeholder {
   color: #555;
   font-size: 13px;
+}
+.reps-input {
+  max-width: 70px;
 }
 .set-check {
   width: 36px;
@@ -622,3 +657,131 @@ html, body {
 }
 .confirm-cancel { background: var(--surface3); color: var(--text); }
 .confirm-ok { background: var(--accent); color: white; }
+
+/* Timer over state */
+.timer-over .timer-label { color: var(--accent); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+.timer-over .timer-display { animation: pulse 1s infinite; }
+
+/* PR Banner */
+.pr-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #ffd700, #ffaa00);
+  color: #1a1a1a;
+  padding: 16px 24px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 3000;
+  box-shadow: 0 8px 32px rgba(255, 215, 0, 0.4);
+  animation: prSlideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  max-width: 90vw;
+}
+@keyframes prSlideIn {
+  from { transform: translateX(-50%) translateY(-100px) scale(0.5); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+}
+.pr-banner.pr-fade {
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.pr-icon { font-size: 36px; }
+.pr-text {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pr-text strong {
+  font-size: 18px;
+  display: block;
+}
+
+/* Workout Summary */
+.summary-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+.summary-card {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 32px 24px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+.summary-emoji { font-size: 48px; margin-bottom: 8px; }
+.summary-card h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+.summary-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.summary-stat {
+  background: var(--surface2);
+  border-radius: 12px;
+  padding: 14px 8px;
+}
+.summary-stat-val {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.summary-stat-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.summary-prs {
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+.summary-prs-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffd700;
+  margin-bottom: 8px;
+}
+.summary-pr-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--text);
+}
+.summary-pr-weight {
+  color: #ffd700;
+  font-weight: 700;
+}
+.summary-done {
+  width: 100%;
+  padding: 14px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.summary-done:active { opacity: 0.8; }

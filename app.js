@@ -13,6 +13,7 @@ let currentWorkout = null;
 let currentSession = {};  // { exerciseId: { sets: [{ weight, reps, done }] } }
 let timerInterval = null;
 let timerSeconds = 0;
+let workoutStartTime = null;
 
 // --- DOM refs ---
 const $ = (sel) => document.querySelector(sel);
@@ -67,17 +68,16 @@ function renderHome() {
 function startWorkout(workoutId) {
   currentWorkout = WORKOUTS.find(w => w.id === workoutId);
   currentSession = {};
+  workoutStartTime = Date.now();
   $('#workout-title').textContent = currentWorkout.name;
   renderWorkout();
   showScreen('workout');
-  // Hide bottom nav during workout
   $('#bottom-nav').style.display = 'none';
 }
 
 $('#finish-btn').addEventListener('click', finishWorkout);
 
 function finishWorkout() {
-  // Check if anything was logged
   const hasData = Object.values(currentSession).some(ex =>
     ex.sets.some(s => s.done)
   );
@@ -86,6 +86,20 @@ function finishWorkout() {
     $('#bottom-nav').style.display = 'flex';
     return;
   }
+
+  // Collect PRs before saving (so we compare against prior history)
+  const prs = [];
+  currentWorkout.exercises.forEach(ex => {
+    const session = currentSession[ex.order];
+    if (!session) return;
+    const bestWeight = Math.max(...session.sets.filter(s => s.done).map(s => parseFloat(s.weight) || 0));
+    if (bestWeight > 0) {
+      const prevPR = getPRForExercise(ex.name);
+      if (bestWeight > prevPR) {
+        prs.push({ name: ex.name, weight: bestWeight, prevPR });
+      }
+    }
+  });
 
   // Save to history
   const history = Storage.get('workoutHistory') || [];
@@ -97,23 +111,92 @@ function finishWorkout() {
     exercises: {}
   };
 
+  let totalSets = 0;
+  let totalVolume = 0;
+  let exerciseCount = 0;
+
   currentWorkout.exercises.forEach(ex => {
     const key = ex.order;
     const session = currentSession[key];
     if (session) {
-      entry.exercises[key] = {
-        name: ex.name,
-        sets: session.sets.filter(s => s.done)
-      };
+      const doneSets = session.sets.filter(s => s.done);
+      if (doneSets.length > 0) {
+        entry.exercises[key] = { name: ex.name, sets: doneSets };
+        exerciseCount++;
+        totalSets += doneSets.length;
+        doneSets.forEach(s => {
+          totalVolume += (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0);
+        });
+      }
     }
   });
 
   history.push(entry);
   Storage.set('workoutHistory', history);
 
-  showScreen('home');
-  $('#bottom-nav').style.display = 'flex';
-  renderHome();
+  // Show summary
+  const duration = workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 60000) : 0;
+  showWorkoutSummary({
+    name: currentWorkout.name,
+    exerciseCount,
+    totalSets,
+    totalVolume,
+    duration,
+    prs
+  });
+}
+
+function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, duration, prs }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'summary-overlay';
+
+  const durationStr = duration >= 60 ? `${Math.floor(duration / 60)}h ${duration % 60}m` : `${duration}m`;
+  const volumeStr = totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}t` : `${Math.round(totalVolume)}kg`;
+
+  let prsHtml = '';
+  if (prs.length > 0) {
+    prsHtml = `<div class="summary-prs">
+      <div class="summary-prs-title">&#127942; Personal Records</div>
+      ${prs.map(pr => `<div class="summary-pr-row">
+        <span>${pr.name}</span>
+        <span class="summary-pr-weight">${pr.weight}kg</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  overlay.innerHTML = `<div class="summary-card">
+    <div class="summary-emoji">&#128170;</div>
+    <h2>${name} Complete</h2>
+    <div class="summary-stats">
+      <div class="summary-stat">
+        <div class="summary-stat-val">${durationStr}</div>
+        <div class="summary-stat-label">Duration</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-stat-val">${exerciseCount}</div>
+        <div class="summary-stat-label">Exercises</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-stat-val">${totalSets}</div>
+        <div class="summary-stat-label">Sets</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-stat-val">${volumeStr}</div>
+        <div class="summary-stat-label">Volume</div>
+      </div>
+    </div>
+    ${prsHtml}
+    <button class="summary-done">Done</button>
+  </div>`;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.summary-done').addEventListener('click', () => {
+    overlay.remove();
+    showScreen('home');
+    $('#bottom-nav').style.display = 'flex';
+    renderHome();
+  });
 }
 
 // --- Render Workout ---
@@ -182,9 +265,13 @@ function renderWorkout() {
           ${session.sets.map((s, i) => `
             <div class="set-row">
               <div class="set-num">${i + 1}</div>
-              <input class="set-input" type="number" inputmode="decimal" placeholder="kg"
-                value="${s.weight}" data-ex="${ex.order}" data-set="${i}" data-field="weight">
-              <input class="set-input" type="number" inputmode="numeric" placeholder="reps"
+              <div class="weight-stepper">
+                <button class="step-btn step-down" data-ex="${ex.order}" data-set="${i}" data-field="weight" data-step="-2.5">&minus;</button>
+                <input class="set-input" type="number" inputmode="decimal" placeholder="kg"
+                  value="${s.weight}" data-ex="${ex.order}" data-set="${i}" data-field="weight">
+                <button class="step-btn step-up" data-ex="${ex.order}" data-set="${i}" data-field="weight" data-step="2.5">+</button>
+              </div>
+              <input class="set-input reps-input" type="number" inputmode="numeric" placeholder="reps"
                 value="${s.reps}" data-ex="${ex.order}" data-set="${i}" data-field="reps">
               <button class="set-check ${s.done ? 'checked' : ''}"
                 data-ex="${ex.order}" data-set="${i}">&#10003;</button>
@@ -221,12 +308,40 @@ function renderWorkout() {
     });
   });
 
+  content.querySelectorAll('.step-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const { ex, set, field, step } = btn.dataset;
+      const setIdx = parseInt(set);
+      const current = parseFloat(currentSession[ex].sets[setIdx][field]) || 0;
+      const newVal = Math.max(0, current + parseFloat(step));
+      currentSession[ex].sets[setIdx][field] = newVal.toString();
+      // Update the input next to this button
+      const input = btn.parentElement.querySelector('.set-input');
+      input.value = newVal;
+    });
+  });
+
   content.querySelectorAll('.set-check').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const { ex, set } = e.currentTarget.dataset;
       const s = currentSession[ex].sets[parseInt(set)];
       s.done = !s.done;
       e.currentTarget.classList.toggle('checked', s.done);
+
+      // PR check when marking done
+      if (s.done) {
+        const weight = parseFloat(s.weight) || 0;
+        if (weight > 0) {
+          const exercise = w.exercises.find(e => e.order === ex);
+          if (exercise) {
+            const currentPR = getPRForExercise(exercise.name);
+            if (weight > currentPR) {
+              showPRBanner(exercise.name, weight);
+            }
+          }
+        }
+      }
 
       // Check if all sets done
       const card = e.currentTarget.closest('.exercise-card');
@@ -247,21 +362,24 @@ function renderWorkout() {
 }
 
 // --- Rest Timer ---
+let timerDoneVibrated = false;
+
 function startTimer(seconds) {
   timerSeconds = seconds;
+  timerDoneVibrated = false;
   updateTimerDisplay();
   $('#rest-timer').classList.remove('hidden');
+  $('#timer-label').textContent = 'Rest';
 
-  // Vibrate at start if available
   if (navigator.vibrate) navigator.vibrate(100);
 
   timerInterval = setInterval(() => {
     timerSeconds--;
     updateTimerDisplay();
-    if (timerSeconds <= 0) {
-      stopTimer();
-      // Vibrate and sound on finish
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    if (timerSeconds === 0 && !timerDoneVibrated) {
+      timerDoneVibrated = true;
+      $('#timer-label').textContent = 'Go!';
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
     }
   }, 1000);
 }
@@ -277,7 +395,9 @@ function updateTimerDisplay() {
   const s = Math.abs(timerSeconds) % 60;
   const prefix = timerSeconds < 0 ? '+' : '';
   $('#timer-display').textContent = `${prefix}${m}:${s.toString().padStart(2, '0')}`;
-  $('#timer-display').style.color = timerSeconds < 0 ? '#e53935' : 'var(--text)';
+  const isOver = timerSeconds <= 0;
+  $('#timer-display').style.color = isOver ? '#e53935' : 'var(--text)';
+  $('#rest-timer').classList.toggle('timer-over', isOver);
 }
 
 $('#timer-skip').addEventListener('click', stopTimer);
@@ -519,6 +639,35 @@ function formatDate(ts) {
   if (diff === 1) return 'Yesterday';
   if (diff < 7) return `${diff} days ago`;
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+
+// --- PR Detection ---
+function getPRForExercise(exerciseName) {
+  const history = Storage.get('workoutHistory') || [];
+  let bestWeight = 0;
+  history.forEach(entry => {
+    Object.values(entry.exercises).forEach(ex => {
+      if (ex.name === exerciseName) {
+        ex.sets.forEach(s => {
+          const w = parseFloat(s.weight) || 0;
+          if (w > bestWeight) bestWeight = w;
+        });
+      }
+    });
+  });
+  return bestWeight;
+}
+
+function showPRBanner(exerciseName, weight) {
+  const banner = document.createElement('div');
+  banner.className = 'pr-banner';
+  banner.innerHTML = `<div class="pr-icon">&#127942;</div><div class="pr-text"><strong>NEW PR!</strong><br>${exerciseName}<br>${weight}kg</div>`;
+  document.body.appendChild(banner);
+  if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+  setTimeout(() => {
+    banner.classList.add('pr-fade');
+    setTimeout(() => banner.remove(), 500);
+  }, 2500);
 }
 
 function confirmAction(title, message, onConfirm) {
