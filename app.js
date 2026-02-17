@@ -240,6 +240,13 @@ let currentSession = {};  // { exerciseId: { sets: [{ weight, reps, done }] } }
 let timerInterval = null;
 let timerSeconds = 0;
 let workoutStartTime = null;
+let workoutTimerInterval = null;
+
+// --- Get all workouts (built-in + custom) ---
+function getAllWorkouts() {
+  const custom = Storage.get('customWorkouts') || [];
+  return [...WORKOUTS, ...custom];
+}
 
 // --- DOM refs ---
 const $ = (sel) => document.querySelector(sel);
@@ -266,8 +273,10 @@ $$('.nav-btn').forEach(btn => {
 });
 
 $('#back-btn').addEventListener('click', () => {
+  stopWorkoutTimer();
   showScreen('home');
   currentWorkout = null;
+  $('#bottom-nav').style.display = 'flex';
 });
 
 // --- Next workout suggestion ---
@@ -287,7 +296,8 @@ function renderHome() {
   const grid = $('#workout-grid');
   const history = Storage.get('workoutHistory') || [];
   const suggestedId = getNextSuggestedWorkout();
-  grid.innerHTML = WORKOUTS.map(w => {
+  const allWorkouts = getAllWorkouts();
+  grid.innerHTML = allWorkouts.map(w => {
     const type = w.id.replace(/[0-9]/g, '');
     const isSuggested = w.id === suggestedId;
     const lastEntry = history.filter(h => h.workoutId === w.id).sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -300,25 +310,77 @@ function renderHome() {
     </div>`;
   }).join('');
 
+  // Add "+" card for custom workout
+  grid.innerHTML += `<div class="workout-card add-workout-card" data-id="__add__">
+    <div class="add-workout-icon">+</div>
+    <div class="card-name">Custom</div>
+    <div class="card-count">Create new workout</div>
+  </div>`;
+
   grid.querySelectorAll('.workout-card').forEach(card => {
-    card.addEventListener('click', () => startWorkout(card.dataset.id));
+    let pressTimer;
+    card.addEventListener('click', () => {
+      if (card.dataset.id === '__add__') return showCustomWorkoutEditor();
+      startWorkout(card.dataset.id);
+    });
+    // Long press to edit custom workouts
+    if (card.dataset.id.startsWith('custom_')) {
+      card.addEventListener('touchstart', () => {
+        pressTimer = setTimeout(() => {
+          pressTimer = 'fired';
+          showCustomWorkoutEditor(card.dataset.id);
+        }, 600);
+      }, { passive: true });
+      card.addEventListener('touchend', (e) => {
+        if (pressTimer === 'fired') { e.preventDefault(); pressTimer = null; return; }
+        clearTimeout(pressTimer);
+      });
+      card.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+    }
   });
 }
 
 // --- Start Workout ---
 function startWorkout(workoutId) {
-  currentWorkout = WORKOUTS.find(w => w.id === workoutId);
+  currentWorkout = getAllWorkouts().find(w => w.id === workoutId);
   currentSession = {};
   workoutStartTime = Date.now();
   $('#workout-title').textContent = currentWorkout.name;
   renderWorkout();
   showScreen('workout');
   $('#bottom-nav').style.display = 'none';
+  startWorkoutTimer();
+}
+
+// --- Workout Timer ---
+function startWorkoutTimer() {
+  stopWorkoutTimer();
+  const el = $('#workout-timer');
+  el.textContent = '0:00';
+  workoutTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - workoutStartTime) / 1000);
+    const h = Math.floor(elapsed / 3600);
+    const m = Math.floor((elapsed % 3600) / 60);
+    const s = elapsed % 60;
+    el.textContent = h > 0
+      ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+      : `${m}:${s.toString().padStart(2, '0')}`;
+  }, 1000);
+}
+
+function stopWorkoutTimer() {
+  if (workoutTimerInterval) {
+    clearInterval(workoutTimerInterval);
+    workoutTimerInterval = null;
+  }
+  const el = $('#workout-timer');
+  if (el) el.textContent = '';
 }
 
 $('#finish-btn').addEventListener('click', finishWorkout);
 
 function finishWorkout() {
+  stopWorkoutTimer();
   const hasData = Object.values(currentSession).some(ex =>
     ex.sets.some(s => s.done)
   );
@@ -429,10 +491,28 @@ function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, durat
     </div>
     ${prsHtml}
     <textarea class="summary-notes" placeholder="Session notes (optional)..." rows="2" maxlength="200"></textarea>
-    <button class="summary-done">Done</button>
+    <div class="summary-actions">
+      <button class="summary-share">Share</button>
+      <button class="summary-done">Done</button>
+    </div>
   </div>`;
 
   document.body.appendChild(overlay);
+
+  // Share button
+  overlay.querySelector('.summary-share').addEventListener('click', async () => {
+    const text = `${name} Complete!\n${durationStr} | ${exerciseCount} exercises | ${totalSets} sets | ${volumeStr} volume${prs.length > 0 ? '\n\nPRs:\n' + prs.map(pr => `${pr.name}: ${pr.weight}kg`).join('\n') : ''}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: `${name} Complete`, text }); } catch {}
+    } else {
+      try {
+        await navigator.clipboard.writeText(text);
+        const btn = overlay.querySelector('.summary-share');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Share', 1500);
+      } catch {}
+    }
+  });
 
   overlay.querySelector('.summary-done').addEventListener('click', () => {
     const notes = overlay.querySelector('.summary-notes').value.trim();
@@ -513,26 +593,40 @@ function renderWorkout() {
         ${ex.notes ? `<div class="exercise-notes"><strong>Coach:</strong> ${ex.notes}</div>` : ''}
         <div class="sets-table">
           <div class="sets-header">
-            <span>Set</span><span>Weight (kg)</span><span>Reps</span><span></span>
+            <span>Set</span><span>Weight (kg)</span><span></span><span>Reps</span><span></span>
           </div>
-          ${session.sets.map((s, i) => `
-            <div class="set-row">
+          ${session.sets.map((s, i) => {
+            const lastW = lastSession?.sets[i]?.weight;
+            const curW = parseFloat(s.weight) || 0;
+            const lastWNum = parseFloat(lastW) || 0;
+            let overloadClass = '';
+            let overloadIcon = '';
+            if (curW > 0 && lastWNum > 0) {
+              if (curW > lastWNum) { overloadClass = 'overload-up'; overloadIcon = '&#9650;'; }
+              else if (curW < lastWNum) { overloadClass = 'overload-down'; overloadIcon = '&#9660;'; }
+              else { overloadClass = 'overload-same'; overloadIcon = '='; }
+            }
+            return `<div class="set-row">
               <div class="set-num">${i + 1}</div>
               <div class="weight-stepper">
                 <button class="step-btn step-down" data-ex="${ex.order}" data-set="${i}" data-field="weight" data-step="-2.5">&minus;</button>
                 <input class="set-input" type="number" inputmode="decimal" placeholder="kg"
-                  value="${s.weight}" data-ex="${ex.order}" data-set="${i}" data-field="weight">
+                  value="${s.weight}" data-ex="${ex.order}" data-set="${i}" data-field="weight"
+                  data-last-weight="${lastW || ''}">
                 <button class="step-btn step-up" data-ex="${ex.order}" data-set="${i}" data-field="weight" data-step="2.5">+</button>
               </div>
+              <span class="overload-indicator ${overloadClass}" data-ex="${ex.order}" data-set="${i}">${overloadIcon}</span>
               <input class="set-input reps-input" type="number" inputmode="numeric"
                 placeholder="${repRanges[i] ? (repRanges[i].min === repRanges[i].max ? repRanges[i].min : repRanges[i].min + '-' + repRanges[i].max) : 'reps'}"
                 value="${s.reps}" data-ex="${ex.order}" data-set="${i}" data-field="reps"
                 data-min="${repRanges[i]?.min || ''}" data-max="${repRanges[i]?.max || ''}">
               <button class="set-check ${s.done ? 'checked' : ''}"
                 data-ex="${ex.order}" data-set="${i}">&#10003;</button>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
+        <div class="warmup-calc-toggle" data-ex="${ex.order}">&#128293; Warm-up sets</div>
+        <div class="warmup-calc-result hidden" data-warmup-ex="${ex.order}"></div>
         ${ex.rest !== '-' && ex.rest !== 'ALAN' ? `
           <button class="rest-trigger" data-rest="${parseRestSeconds(ex.rest)}">
             &#9202; Start Rest Timer (${ex.rest})
@@ -569,8 +663,14 @@ function renderWorkout() {
             s.weight = e.target.value;
             const inp = content.querySelector(`.set-input[data-ex="${ex}"][data-set="${idx}"][data-field="weight"]`);
             if (inp) inp.value = e.target.value;
+            updateOverloadIndicator(content, ex, idx, e.target.value);
           }
         });
+      }
+
+      // Update overload indicator
+      if (field === 'weight') {
+        updateOverloadIndicator(content, ex, setIdx, e.target.value);
       }
 
       // Rep range indicator
@@ -597,6 +697,11 @@ function renderWorkout() {
       const input = btn.parentElement.querySelector('.set-input');
       input.value = newVal;
 
+      // Update overload indicator
+      if (field === 'weight') {
+        updateOverloadIndicator(content, ex, setIdx, newVal.toString());
+      }
+
       // Auto-fill weight from first set
       if (field === 'weight' && setIdx === 0) {
         currentSession[ex].sets.forEach((s, idx) => {
@@ -604,6 +709,7 @@ function renderWorkout() {
             s.weight = newVal.toString();
             const inp = content.querySelector(`.set-input[data-ex="${ex}"][data-set="${idx}"][data-field="weight"]`);
             if (inp) inp.value = newVal;
+            updateOverloadIndicator(content, ex, idx, newVal.toString());
           }
         });
       }
@@ -652,6 +758,65 @@ function renderWorkout() {
       startTimer(parseInt(btn.dataset.rest));
     });
   });
+
+  // Warm-up calc toggles
+  content.querySelectorAll('.warmup-calc-toggle').forEach(toggle => {
+    toggle.addEventListener('click', () => {
+      const ex = toggle.dataset.ex;
+      const resultEl = content.querySelector(`.warmup-calc-result[data-warmup-ex="${ex}"]`);
+      if (!resultEl.classList.contains('hidden')) {
+        resultEl.classList.add('hidden');
+        return;
+      }
+      // Get first set weight as working weight
+      const firstWeight = parseFloat(currentSession[ex]?.sets[0]?.weight) || 0;
+      if (firstWeight <= 20) {
+        resultEl.innerHTML = '<div class="warmup-empty">Enter a working weight first</div>';
+      } else {
+        const sets = calcWarmupSets(firstWeight);
+        resultEl.innerHTML = sets.map(s =>
+          `<div class="warmup-set-row"><span>${s.weight}kg</span><span>&times; ${s.reps}</span></div>`
+        ).join('') + `<div class="warmup-set-row working"><span>${firstWeight}kg</span><span>Working sets</span></div>`;
+      }
+      resultEl.classList.remove('hidden');
+    });
+  });
+}
+
+// --- Overload Indicator ---
+function updateOverloadIndicator(container, ex, setIdx, value) {
+  const indicator = container.querySelector(`.overload-indicator[data-ex="${ex}"][data-set="${setIdx}"]`);
+  if (!indicator) return;
+  const input = container.querySelector(`.set-input[data-ex="${ex}"][data-set="${setIdx}"][data-field="weight"]`);
+  const lastW = parseFloat(input?.dataset.lastWeight) || 0;
+  const curW = parseFloat(value) || 0;
+  indicator.className = 'overload-indicator';
+  if (curW > 0 && lastW > 0) {
+    if (curW > lastW) { indicator.classList.add('overload-up'); indicator.innerHTML = '&#9650;'; }
+    else if (curW < lastW) { indicator.classList.add('overload-down'); indicator.innerHTML = '&#9660;'; }
+    else { indicator.classList.add('overload-same'); indicator.innerHTML = '='; }
+  } else {
+    indicator.innerHTML = '';
+  }
+}
+
+// --- Warm-up Set Calculator ---
+function calcWarmupSets(workingWeight) {
+  if (workingWeight <= 20) return [];
+  const bar = 20;
+  const sets = [];
+  // Pyramid: 50% x 10, 70% x 5, 85% x 3, then working
+  const percents = [0.5, 0.7, 0.85];
+  const reps = [10, 5, 3];
+  percents.forEach((pct, i) => {
+    const w = Math.round(workingWeight * pct / 2.5) * 2.5;
+    if (w > bar) sets.push({ weight: w, reps: reps[i] });
+  });
+  // Always start with bar if not already included
+  if (sets.length === 0 || sets[0].weight > bar) {
+    sets.unshift({ weight: bar, reps: 10 });
+  }
+  return sets;
 }
 
 // --- Rest Timer ---
@@ -779,6 +944,13 @@ function renderHistory() {
   });
 }
 
+// --- 1RM Estimate (Epley formula) ---
+function calc1RM(weight, reps) {
+  if (reps <= 0 || weight <= 0) return 0;
+  if (reps === 1) return weight;
+  return Math.round(weight * (1 + reps / 30) * 10) / 10;
+}
+
 // --- Progress ---
 function renderProgress() {
   const history = Storage.get('workoutHistory') || [];
@@ -806,11 +978,32 @@ function renderProgress() {
     });
   });
 
-  // Filter chips - workout type
+  // View mode: charts, prs, bodyweight
+  const activeView = filters.dataset.view || 'charts';
   const activeFilter = filters.dataset.active || 'all';
-  filters.innerHTML = ['all', 'push', 'pull', 'legs'].map(f =>
-    `<button class="filter-chip ${f === activeFilter ? 'active' : ''}" data-filter="${f}">${f === 'all' ? 'All' : f.toUpperCase()}</button>`
-  ).join('');
+
+  // View tabs
+  let filtersHtml = `<div class="progress-tabs">
+    ${['charts', 'prs', 'bodyweight'].map(v =>
+      `<button class="progress-tab ${v === activeView ? 'active' : ''}" data-view="${v}">${v === 'prs' ? 'PRs' : v === 'bodyweight' ? 'Body Weight' : 'Charts'}</button>`
+    ).join('')}
+  </div>`;
+
+  // Type filter chips (only for charts and prs views)
+  if (activeView !== 'bodyweight') {
+    filtersHtml += `<div class="progress-chips">` + ['all', 'push', 'pull', 'legs'].map(f =>
+      `<button class="filter-chip ${f === activeFilter ? 'active' : ''}" data-filter="${f}">${f === 'all' ? 'All' : f.toUpperCase()}</button>`
+    ).join('') + '</div>';
+  }
+
+  filters.innerHTML = filtersHtml;
+
+  filters.querySelectorAll('.progress-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      filters.dataset.view = tab.dataset.view;
+      renderProgress();
+    });
+  });
 
   filters.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -825,31 +1018,70 @@ function renderProgress() {
     if (activeFilter === 'all') {
       filteredExercises.set(name, data);
     } else {
-      // Check if this exercise belongs to a workout of this type
-      const belongsToType = WORKOUTS.some(w =>
+      const belongsToType = getAllWorkouts().some(w =>
         w.id.includes(activeFilter) && w.exercises.some(e => e.name === name)
       );
       if (belongsToType) filteredExercises.set(name, data);
     }
   });
 
+  // --- Body Weight View ---
+  if (activeView === 'bodyweight') {
+    renderBodyWeightView(container);
+    return;
+  }
+
+  // --- PRs View ---
+  if (activeView === 'prs') {
+    let html = '';
+    const prList = [];
+    filteredExercises.forEach((sessions, name) => {
+      let bestWeight = 0, bestReps = 0, bestSet = null, best1RM = 0;
+      sessions.forEach(s => {
+        s.sets.forEach(set => {
+          const w = parseFloat(set.weight) || 0;
+          const r = parseInt(set.reps) || 0;
+          if (w > bestWeight) { bestWeight = w; bestReps = r; bestSet = set; }
+          const est = calc1RM(w, r);
+          if (est > best1RM) best1RM = est;
+        });
+      });
+      if (bestWeight > 0) {
+        prList.push({ name, bestWeight, bestReps, best1RM, sessions: sessions.length });
+      }
+    });
+
+    prList.sort((a, b) => b.best1RM - a.best1RM);
+
+    html = prList.map((pr, i) => `<div class="pr-board-row">
+      <div class="pr-board-rank">${i + 1}</div>
+      <div class="pr-board-info">
+        <div class="pr-board-name">${pr.name}</div>
+        <div class="pr-board-detail">${pr.sessions} sessions</div>
+      </div>
+      <div class="pr-board-stats">
+        <div class="pr-board-weight">${pr.bestWeight}kg <span>&times; ${pr.bestReps}</span></div>
+        <div class="pr-board-1rm">Est. 1RM: ${pr.best1RM}kg</div>
+      </div>
+    </div>`).join('');
+
+    container.innerHTML = html || '<div class="progress-empty"><p>No weight data logged.</p></div>';
+    return;
+  }
+
+  // --- Charts View ---
   let html = '';
   filteredExercises.forEach((sessions, name) => {
-    // Sort by date
     sessions.sort((a, b) => a.date - b.date);
 
-    // Get max weight for each session
     const dataPoints = sessions.map(s => {
       const maxWeight = Math.max(...s.sets.map(set => parseFloat(set.weight) || 0));
       const bestSet = s.sets.reduce((best, set) => {
         const w = parseFloat(set.weight) || 0;
         return w > (parseFloat(best.weight) || 0) ? set : best;
       }, s.sets[0]);
-      return {
-        date: s.date,
-        maxWeight,
-        bestSet
-      };
+      const est1RM = calc1RM(parseFloat(bestSet.weight) || 0, parseInt(bestSet.reps) || 0);
+      return { date: s.date, maxWeight, bestSet, est1RM };
     }).filter(d => d.maxWeight > 0);
 
     if (dataPoints.length === 0) return;
@@ -875,13 +1107,97 @@ function renderProgress() {
       </div>
       <div class="progress-best">
         <span>Best: <strong>${maxW}kg</strong></span>
-        <span>Sessions: <strong>${dataPoints.length}</strong></span>
+        <span>1RM: <strong>${latest.est1RM}kg</strong></span>
         ${improvement !== 0 ? `<span style="color:${improvement > 0 ? '#43a047' : '#e53935'}">${improvement > 0 ? '+' : ''}${improvement}kg</span>` : ''}
       </div>
     </div>`;
   });
 
   container.innerHTML = html || '<div class="progress-empty"><p>No weight data logged for this filter.</p></div>';
+}
+
+// --- Body Weight View ---
+function renderBodyWeightView(container) {
+  const entries = Storage.get('bodyWeight') || [];
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntry = entries.find(e => e.date === today);
+
+  let html = `<div class="bw-input-section">
+    <div class="bw-input-row">
+      <input type="number" id="bw-input" class="set-input" inputmode="decimal" placeholder="kg" value="${todayEntry?.weight || ''}">
+      <button class="bw-save-btn" id="bw-save">Log Weight</button>
+    </div>
+  </div>`;
+
+  if (entries.length > 0) {
+    const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+    const latest = sorted[sorted.length - 1];
+    const earliest = sorted[0];
+    const change = sorted.length > 1 ? (parseFloat(latest.weight) - parseFloat(earliest.weight)).toFixed(1) : 0;
+    const weights = sorted.map(e => parseFloat(e.weight));
+    const minW = Math.min(...weights);
+    const maxW = Math.max(...weights);
+    const range = maxW - minW || 1;
+
+    html += `<div class="bw-stats">
+      <div class="bw-stat"><div class="bw-stat-val">${latest.weight}kg</div><div class="bw-stat-label">Current</div></div>
+      <div class="bw-stat"><div class="bw-stat-val">${minW}kg</div><div class="bw-stat-label">Low</div></div>
+      <div class="bw-stat"><div class="bw-stat-val">${maxW}kg</div><div class="bw-stat-label">High</div></div>
+      <div class="bw-stat"><div class="bw-stat-val" style="color:${parseFloat(change) > 0 ? '#e53935' : parseFloat(change) < 0 ? '#43a047' : 'var(--text)'}">${parseFloat(change) > 0 ? '+' : ''}${change}kg</div><div class="bw-stat-label">Change</div></div>
+    </div>`;
+
+    // Simple line chart via SVG
+    const chartW = 300, chartH = 120, padX = 5, padY = 10;
+    const recent = sorted.slice(-30);
+    if (recent.length > 1) {
+      const pts = recent.map((e, i) => {
+        const x = padX + (i / (recent.length - 1)) * (chartW - 2 * padX);
+        const y = padY + (1 - (parseFloat(e.weight) - minW) / range) * (chartH - 2 * padY);
+        return `${x},${y}`;
+      });
+      html += `<div class="bw-chart-wrap">
+        <svg viewBox="0 0 ${chartW} ${chartH}" class="bw-chart">
+          <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          ${recent.map((e, i) => {
+            const x = padX + (i / (recent.length - 1)) * (chartW - 2 * padX);
+            const y = padY + (1 - (parseFloat(e.weight) - minW) / range) * (chartH - 2 * padY);
+            return `<circle cx="${x}" cy="${y}" r="3" fill="var(--accent)"/>`;
+          }).join('')}
+        </svg>
+        <div class="bw-chart-labels">
+          <span>${recent[0].date.slice(5)}</span>
+          <span>${recent[recent.length - 1].date.slice(5)}</span>
+        </div>
+      </div>`;
+    }
+
+    // Recent entries list
+    html += `<div class="bw-history">`;
+    sorted.slice().reverse().slice(0, 10).forEach(e => {
+      html += `<div class="bw-history-row">
+        <span>${new Date(e.date + 'T00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', weekday: 'short' })}</span>
+        <span>${e.weight}kg</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+
+  // Save body weight
+  const saveBtn = container.querySelector('#bw-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const val = parseFloat(container.querySelector('#bw-input').value);
+      if (!val || val < 20 || val > 300) return;
+      const entries = Storage.get('bodyWeight') || [];
+      const idx = entries.findIndex(e => e.date === today);
+      if (idx >= 0) entries[idx].weight = val;
+      else entries.push({ date: today, weight: val });
+      Storage.set('bodyWeight', entries);
+      renderBodyWeightView(container);
+    });
+  }
 }
 
 // --- Helpers ---
@@ -1460,6 +1776,132 @@ Storage.init().then(() => {
   }
 });
 
+// --- Custom Workout Editor ---
+function showCustomWorkoutEditor(editId) {
+  const existing = editId ? (Storage.get('customWorkouts') || []).find(w => w.id === editId) : null;
+  const overlay = document.createElement('div');
+  overlay.className = 'custom-workout-overlay';
+
+  const colors = [
+    { name: 'Red', val: '#e53935' },
+    { name: 'Blue', val: '#1e88e5' },
+    { name: 'Green', val: '#43a047' },
+    { name: 'Purple', val: '#8e24aa' },
+    { name: 'Orange', val: '#f4511e' },
+    { name: 'Teal', val: '#00897b' }
+  ];
+
+  let exercises = existing ? existing.exercises.map(e => ({ ...e })) : [{ name: '', setsConfig: '3 x 10-12', tempo: '3011', rest: '1-2 mins', notes: '' }];
+
+  function render() {
+    overlay.innerHTML = `<div class="custom-workout-card">
+      <div class="custom-workout-header">
+        <h3>${existing ? 'Edit' : 'New'} Workout</h3>
+        <button class="icon-btn custom-close">&times;</button>
+      </div>
+      <input type="text" class="identity-input" id="cw-name" placeholder="Workout name" value="${existing?.name || ''}" maxlength="30">
+      <div class="cw-colors">
+        ${colors.map(c => `<button class="cw-color ${(existing?.color || '#e53935') === c.val ? 'active' : ''}" data-color="${c.val}" style="background:${c.val}"></button>`).join('')}
+      </div>
+      <div class="cw-exercises" id="cw-exercises">
+        ${exercises.map((ex, i) => `<div class="cw-exercise" data-idx="${i}">
+          <div class="cw-exercise-header">
+            <span class="cw-exercise-num">${String.fromCharCode(65 + i)}</span>
+            <input type="text" class="cw-ex-input" placeholder="Exercise name" value="${ex.name}" data-idx="${i}" data-field="name">
+            ${exercises.length > 1 ? `<button class="cw-remove-ex" data-idx="${i}">&times;</button>` : ''}
+          </div>
+          <div class="cw-exercise-details">
+            <input type="text" class="cw-ex-input small" placeholder="3 x 10-12" value="${ex.setsConfig}" data-idx="${i}" data-field="setsConfig">
+            <input type="text" class="cw-ex-input small" placeholder="Tempo" value="${ex.tempo}" data-idx="${i}" data-field="tempo">
+            <input type="text" class="cw-ex-input small" placeholder="Rest" value="${ex.rest}" data-idx="${i}" data-field="rest">
+          </div>
+        </div>`).join('')}
+      </div>
+      <button class="cw-add-exercise" id="cw-add-ex">+ Add Exercise</button>
+      <div class="cw-actions">
+        ${existing ? '<button class="cw-delete">Delete Workout</button>' : ''}
+        <button class="cw-save">Save</button>
+      </div>
+    </div>`;
+
+    // Event listeners
+    overlay.querySelector('.custom-close').addEventListener('click', () => overlay.remove());
+
+    overlay.querySelectorAll('.cw-color').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.cw-color').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    overlay.querySelectorAll('.cw-ex-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const idx = parseInt(input.dataset.idx);
+        exercises[idx][input.dataset.field] = input.value;
+      });
+    });
+
+    overlay.querySelectorAll('.cw-remove-ex').forEach(btn => {
+      btn.addEventListener('click', () => {
+        exercises.splice(parseInt(btn.dataset.idx), 1);
+        render();
+      });
+    });
+
+    overlay.querySelector('#cw-add-ex').addEventListener('click', () => {
+      exercises.push({ name: '', setsConfig: '3 x 10-12', tempo: '3011', rest: '1-2 mins', notes: '' });
+      render();
+    });
+
+    const deleteBtn = overlay.querySelector('.cw-delete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        confirmAction('Delete this workout?', 'This cannot be undone.', () => {
+          const custom = (Storage.get('customWorkouts') || []).filter(w => w.id !== editId);
+          Storage.set('customWorkouts', custom);
+          overlay.remove();
+          renderHome();
+        });
+      });
+    }
+
+    overlay.querySelector('.cw-save').addEventListener('click', () => {
+      const name = overlay.querySelector('#cw-name').value.trim();
+      if (!name) return;
+      const validExercises = exercises.filter(e => e.name.trim());
+      if (validExercises.length === 0) return;
+      const color = overlay.querySelector('.cw-color.active')?.dataset.color || '#e53935';
+
+      const workout = {
+        id: existing?.id || 'custom_' + Date.now().toString(36),
+        name,
+        color,
+        icon: 'custom',
+        warmup: [],
+        exercises: validExercises.map((e, i) => ({
+          order: String.fromCharCode(65 + i),
+          name: e.name.trim(),
+          setsConfig: e.setsConfig || '3 x 10',
+          tempo: e.tempo || '3011',
+          rest: e.rest || '1-2 mins',
+          notes: e.notes || ''
+        }))
+      };
+
+      const custom = Storage.get('customWorkouts') || [];
+      const idx = custom.findIndex(w => w.id === workout.id);
+      if (idx >= 0) custom[idx] = workout;
+      else custom.push(workout);
+      Storage.set('customWorkouts', custom);
+      overlay.remove();
+      renderHome();
+    });
+  }
+
+  render();
+  document.body.appendChild(overlay);
+}
+
 // --- Swipe back from workout ---
 (function() {
   let touchStartX = 0;
@@ -1476,6 +1918,7 @@ Storage.init().then(() => {
     const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
     // Swipe right from left edge, mostly horizontal
     if (touchStartX < 40 && dx > 80 && dy < 100) {
+      stopWorkoutTimer();
       showScreen('home');
       currentWorkout = null;
       $('#bottom-nav').style.display = 'flex';
