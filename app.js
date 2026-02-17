@@ -1007,6 +1007,26 @@ function importData() {
 $('#export-btn').addEventListener('click', exportData);
 $('#import-btn').addEventListener('click', importData);
 
+// --- App Sync ---
+$('#sync-btn').addEventListener('click', async () => {
+  const btn = $('#sync-btn');
+  btn.textContent = 'Syncing...';
+  btn.disabled = true;
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.unregister();
+      }
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    window.location.reload(true);
+  } catch {
+    window.location.reload(true);
+  }
+});
+
 // --- Theme ---
 function initTheme() {
   const saved = Storage.get('theme') || 'dark';
