@@ -134,7 +134,7 @@
           <button class="settings-btn" id="signout-btn" style="display:none">Sign Out</button>
         </div>
       </div>
-      <div class="settings-version">v20</div>
+      <div class="settings-version">v21</div>
     </div>
 
     <!-- Plate Calculator Overlay -->
@@ -154,16 +154,17 @@
       </div>
     </div>
 
-    <!-- Rest Timer Overlay -->
-    <div id="rest-timer" class="timer-overlay hidden">
-      <div class="timer-card">
-        <p class="timer-label" id="timer-label">Rest</p>
-        <p class="timer-display" id="timer-display">0:00</p>
-        <div class="timer-buttons">
-          <button class="timer-btn" id="timer-skip">Skip</button>
-        </div>
+    <!-- Floating Rest Timer -->
+    <div id="rest-timer" class="rest-float hidden">
+      <div class="rest-float-inner">
+        <span class="rest-float-label" id="timer-label">Rest</span>
+        <span class="rest-float-time" id="timer-display">0:00</span>
+        <button class="rest-float-skip" id="timer-skip">Skip</button>
       </div>
     </div>
+
+    <!-- Confetti Canvas -->
+    <canvas id="confetti-canvas"></canvas>
   </div>
 
   <script src="data.js"></script>

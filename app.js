@@ -435,6 +435,21 @@ function finishWorkout() {
     }
   });
 
+  // Compare vs last same workout
+  const lastSame = history.filter(h => h.workoutId === currentWorkout.id).sort((a, b) => b.timestamp - a.timestamp)[0];
+  let comparison = null;
+  if (lastSame) {
+    const lastVolume = Object.values(lastSame.exercises).reduce((sum, ex) =>
+      sum + ex.sets.reduce((s, set) => s + (parseFloat(set.weight) || 0) * (parseInt(set.reps) || 0), 0), 0);
+    const lastSets = Object.values(lastSame.exercises).reduce((sum, ex) => sum + ex.sets.length, 0);
+    const lastDuration = lastSame.duration || 0;
+    comparison = {
+      volumeChange: totalVolume - lastVolume,
+      setsChange: totalSets - lastSets,
+      lastDate: lastSame.timestamp
+    };
+  }
+
   history.push(entry);
   Storage.set('workoutHistory', history);
 
@@ -446,11 +461,65 @@ function finishWorkout() {
     totalSets,
     totalVolume,
     duration,
-    prs
+    prs,
+    comparison
   });
 }
 
-function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, duration, prs }) {
+// --- Confetti ---
+function launchConfetti() {
+  const canvas = $('#confetti-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const colors = ['#e53935', '#43a047', '#1e88e5', '#ffd700', '#ff6f00', '#8e24aa'];
+  const particles = [];
+  for (let i = 0; i < 80; i++) {
+    particles.push({
+      x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+      y: canvas.height / 2,
+      vx: (Math.random() - 0.5) * 12,
+      vy: Math.random() * -14 - 4,
+      w: Math.random() * 8 + 4,
+      h: Math.random() * 6 + 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rotation: Math.random() * 360,
+      rotSpeed: (Math.random() - 0.5) * 12,
+      gravity: 0.3 + Math.random() * 0.1,
+      opacity: 1
+    });
+  }
+
+  let frame = 0;
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.vy += p.gravity;
+      p.y += p.vy;
+      p.rotation += p.rotSpeed;
+      if (frame > 40) p.opacity -= 0.02;
+      if (p.opacity <= 0) return;
+      alive = true;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation * Math.PI / 180);
+      ctx.globalAlpha = Math.max(0, p.opacity);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    frame++;
+    if (alive && frame < 120) requestAnimationFrame(animate);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  requestAnimationFrame(animate);
+}
+
+function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, duration, prs, comparison }) {
   const overlay = document.createElement('div');
   overlay.className = 'summary-overlay';
 
@@ -465,6 +534,31 @@ function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, durat
         <span>${pr.name}</span>
         <span class="summary-pr-weight">${pr.weight}kg</span>
       </div>`).join('')}
+    </div>`;
+  }
+
+  let compHtml = '';
+  if (comparison) {
+    const volSign = comparison.volumeChange > 0 ? '+' : '';
+    const volClass = comparison.volumeChange > 0 ? 'up' : comparison.volumeChange < 0 ? 'down' : 'same';
+    const volStr = Math.abs(comparison.volumeChange) >= 1000
+      ? `${volSign}${(comparison.volumeChange / 1000).toFixed(1)}t`
+      : `${volSign}${Math.round(comparison.volumeChange)}kg`;
+    const setsSign = comparison.setsChange > 0 ? '+' : '';
+    const setsClass = comparison.setsChange > 0 ? 'up' : comparison.setsChange < 0 ? 'down' : 'same';
+    const lastDateStr = formatDate(comparison.lastDate);
+    compHtml = `<div class="summary-comparison">
+      <div class="summary-comparison-title">vs Last Time (${lastDateStr})</div>
+      <div class="summary-comparison-rows">
+        <div class="summary-comp-row">
+          <span class="summary-comp-label">Volume</span>
+          <span class="summary-comp-val ${volClass}">${volStr}</span>
+        </div>
+        <div class="summary-comp-row">
+          <span class="summary-comp-label">Sets</span>
+          <span class="summary-comp-val ${setsClass}">${setsSign}${comparison.setsChange}</span>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -490,12 +584,16 @@ function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, durat
       </div>
     </div>
     ${prsHtml}
+    ${compHtml}
     <textarea class="summary-notes" placeholder="Session notes (optional)..." rows="2" maxlength="200"></textarea>
     <div class="summary-actions">
       <button class="summary-share">Share</button>
       <button class="summary-done">Done</button>
     </div>
   </div>`;
+
+  // Launch confetti
+  launchConfetti();
 
   document.body.appendChild(overlay);
 
@@ -535,6 +633,13 @@ function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, durat
 function renderWorkout() {
   const w = currentWorkout;
   let html = '';
+
+  // Progress bar
+  const totalExercises = w.exercises.length;
+  html += `<div class="workout-progress">
+    <div class="workout-progress-bar"><div class="workout-progress-fill" id="progress-fill"></div></div>
+    <span class="workout-progress-text" id="progress-text">0/${totalExercises} exercises</span>
+  </div>`;
 
   // Warmup
   html += '<p class="section-label">Warm-up / Mobility</p>';
@@ -776,6 +881,7 @@ function renderWorkout() {
           setTimeout(() => nextCard.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
         }
       }
+      updateWorkoutProgress();
     });
   });
 
@@ -816,6 +922,21 @@ function renderWorkout() {
       resultEl.classList.remove('hidden');
     });
   });
+}
+
+// --- Workout Progress ---
+function updateWorkoutProgress() {
+  if (!currentWorkout) return;
+  const total = currentWorkout.exercises.length;
+  let done = 0;
+  currentWorkout.exercises.forEach(ex => {
+    const session = currentSession[ex.order];
+    if (session && session.sets.every(s => s.done)) done++;
+  });
+  const fill = $('#progress-fill');
+  const text = $('#progress-text');
+  if (fill) fill.style.width = `${(done / total) * 100}%`;
+  if (text) text.textContent = `${done}/${total} exercises`;
 }
 
 // --- Overload Indicator ---
@@ -889,9 +1010,7 @@ function updateTimerDisplay() {
   const s = Math.abs(timerSeconds) % 60;
   const prefix = timerSeconds < 0 ? '+' : '';
   $('#timer-display').textContent = `${prefix}${m}:${s.toString().padStart(2, '0')}`;
-  const isOver = timerSeconds <= 0;
-  $('#timer-display').style.color = isOver ? '#e53935' : 'var(--text)';
-  $('#rest-timer').classList.toggle('timer-over', isOver);
+  $('#rest-timer').classList.toggle('timer-over', timerSeconds <= 0);
 }
 
 $('#timer-skip').addEventListener('click', stopTimer);
@@ -1504,6 +1623,32 @@ function renderDashboard() {
   const dashboard = $('#dashboard');
   if (!dashboard) return;
   const history = Storage.get('workoutHistory') || [];
+
+  // Onboarding for new users
+  if (history.length === 0) {
+    dashboard.innerHTML = `<div class="onboarding">
+      <div class="onboarding-emoji">&#128170;</div>
+      <h2>Ready to Train?</h2>
+      <p class="onboarding-subtitle">Pick a workout below to get started. Your stats, PRs, and progress will appear here after your first session.</p>
+      <div class="onboarding-steps">
+        <div class="onboarding-step">
+          <div class="onboarding-step-num">1</div>
+          <div class="onboarding-step-text">Tap a workout card below</div>
+        </div>
+        <div class="onboarding-step">
+          <div class="onboarding-step-num">2</div>
+          <div class="onboarding-step-text">Log your weights and reps</div>
+        </div>
+        <div class="onboarding-step">
+          <div class="onboarding-step-num">3</div>
+          <div class="onboarding-step-text">Hit Finish to save and track progress</div>
+        </div>
+      </div>
+    </div>
+    <div class="dash-grid-label">Start a Workout</div>`;
+    return;
+  }
+
   const stats = getWeeklyStats(history);
   const streak = getCurrentStreak(history);
   const muscles = getMuscleActivity(history);
