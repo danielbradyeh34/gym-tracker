@@ -1454,6 +1454,7 @@ Storage.init().then(() => {
     $('#screen-identity').classList.add('active');
     $('#bottom-nav').style.display = 'none';
   } else {
+    $('#screen-home').classList.add('active');
     renderHome();
     updateSyncStatus();
   }
