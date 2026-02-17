@@ -556,11 +556,19 @@ function renderWorkout() {
     if (!currentSession[ex.order]) {
       // Pre-fill with last session's weights AND reps
       currentSession[ex.order] = {
-        sets: Array.from({ length: numSets }, (_, i) => ({
-          weight: (lastSession && lastSession.sets[i]?.weight) || '',
-          reps: (lastSession && lastSession.sets[i]?.reps) || '',
-          done: false
-        }))
+        sets: Array.from({ length: numSets }, (_, i) => {
+          let weight = (lastSession && lastSession.sets[i]?.weight) || '';
+          const reps = (lastSession && lastSession.sets[i]?.reps) || '';
+          // Smart weight suggestion: +2.5kg if hit top of rep range last time
+          if (weight && lastSession?.sets[i]) {
+            const lastReps = parseInt(lastSession.sets[i].reps) || 0;
+            const range = repRanges[i];
+            if (range && lastReps >= range.max) {
+              weight = ((parseFloat(weight) || 0) + 2.5).toString();
+            }
+          }
+          return { weight, reps, done: false };
+        })
       };
     }
     const session = currentSession[ex.order];
@@ -723,6 +731,17 @@ function renderWorkout() {
       s.done = !s.done;
       e.currentTarget.classList.toggle('checked', s.done);
 
+      if (s.done) {
+        // Haptic feedback
+        if (navigator.vibrate) navigator.vibrate(10);
+        // Checkmark bounce animation
+        e.currentTarget.classList.add('check-bounce');
+        setTimeout(() => e.currentTarget.classList.remove('check-bounce'), 400);
+        // Row flash
+        const row = e.currentTarget.closest('.set-row');
+        if (row) { row.classList.add('set-flash'); setTimeout(() => row.classList.remove('set-flash'), 500); }
+      }
+
       // PR check + auto-rest when marking done
       if (s.done) {
         const exercise = w.exercises.find(e => e.order === ex);
@@ -749,7 +768,23 @@ function renderWorkout() {
       if (allDone) {
         const orderEl = card.querySelector('.exercise-order');
         orderEl.innerHTML = '&#10003;';
+        // Auto-advance: collapse done exercise, expand next
+        card.classList.remove('expanded');
+        const nextCard = card.nextElementSibling;
+        if (nextCard && nextCard.classList.contains('exercise-card') && !nextCard.classList.contains('completed')) {
+          nextCard.classList.add('expanded');
+          setTimeout(() => nextCard.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+        }
       }
+    });
+  });
+
+  // One-tap set rows: tap anywhere on row to toggle set
+  content.querySelectorAll('.set-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('.weight-stepper') || e.target.closest('.set-check')) return;
+      const checkBtn = row.querySelector('.set-check');
+      if (checkBtn) checkBtn.click();
     });
   });
 
@@ -894,14 +929,16 @@ function renderHistory() {
       const exerciseCount = Object.keys(entry.exercises).length;
       const totalSets = Object.values(entry.exercises).reduce((sum, ex) => sum + ex.sets.length, 0);
 
-      html += `<div class="history-entry" data-entry-id="${entry.id}">
-        <div class="history-entry-header">
-          <span class="history-entry-name">${entry.workoutName}</span>
-          <span class="history-entry-badge" style="background:${colors[type] || 'var(--accent)'}">${type.toUpperCase()}</span>
-        </div>
-        <div class="history-entry-stats">${entry.duration ? entry.duration + 'm &middot; ' : ''}${exerciseCount} exercises &middot; ${totalSets} sets logged</div>
-        ${entry.notes ? `<div class="history-entry-notes">${entry.notes}</div>` : ''}
-        <div class="history-detail">`;
+      html += `<div class="swipe-container">
+        <div class="swipe-delete-bg" data-delete-id="${entry.id}">Delete</div>
+        <div class="history-entry" data-entry-id="${entry.id}">
+          <div class="history-entry-header">
+            <span class="history-entry-name">${entry.workoutName}</span>
+            <span class="history-entry-badge" style="background:${colors[type] || 'var(--accent)'}">${type.toUpperCase()}</span>
+          </div>
+          <div class="history-entry-stats">${entry.duration ? entry.duration + 'm &middot; ' : ''}${exerciseCount} exercises &middot; ${totalSets} sets logged</div>
+          ${entry.notes ? `<div class="history-entry-notes">${entry.notes}</div>` : ''}
+          <div class="history-detail">`;
 
       Object.values(entry.exercises).forEach(ex => {
         const setsStr = ex.sets.map(s => `${s.weight || '?'}kg x ${s.reps || '?'}`).join(', ');
@@ -911,7 +948,7 @@ function renderHistory() {
         </div>`;
       });
 
-      html += `<button class="delete-session" data-delete-id="${entry.id}">Delete Session</button>
+      html += `</div>
         </div>
       </div>`;
     });
@@ -923,17 +960,60 @@ function renderHistory() {
   // Toggle expand
   container.querySelectorAll('.history-entry').forEach(entry => {
     entry.addEventListener('click', (e) => {
-      if (e.target.classList.contains('delete-session')) return;
+      // Close swipe if open
+      const curTransform = entry.style.transform;
+      if (curTransform && curTransform.includes('-80')) {
+        entry.style.transition = 'transform 0.3s ease';
+        entry.style.transform = 'translateX(0)';
+        return;
+      }
       entry.classList.toggle('expanded');
     });
   });
 
-  // Delete
-  container.querySelectorAll('.delete-session').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
+  // Swipe-to-delete on history entries
+  container.querySelectorAll('.swipe-container').forEach(wrap => {
+    const entry = wrap.querySelector('.history-entry');
+    let startX = 0, currentX = 0, swiping = false;
+
+    wrap.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      currentX = startX;
+      swiping = false;
+      entry.style.transition = 'none';
+      // Close all other swiped entries
+      container.querySelectorAll('.swipe-container .history-entry').forEach(other => {
+        if (other !== entry) {
+          other.style.transition = 'transform 0.3s ease';
+          other.style.transform = 'translateX(0)';
+        }
+      });
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', (e) => {
+      currentX = e.touches[0].clientX;
+      const dx = currentX - startX;
+      if (dx < -10) {
+        swiping = true;
+        entry.style.transform = `translateX(${Math.max(dx, -80)}px)`;
+      }
+    }, { passive: true });
+
+    wrap.addEventListener('touchend', () => {
+      entry.style.transition = 'transform 0.3s ease';
+      if (swiping && (currentX - startX) < -60) {
+        entry.style.transform = 'translateX(-80px)';
+      } else {
+        entry.style.transform = 'translateX(0)';
+      }
+    });
+  });
+
+  // Delete via swipe reveal
+  container.querySelectorAll('.swipe-delete-bg').forEach(bg => {
+    bg.addEventListener('click', () => {
+      const id = bg.dataset.deleteId;
       confirmAction('Delete this workout session?', 'This cannot be undone.', () => {
-        const id = btn.dataset.deleteId;
         Storage.deleteFromCloud(id);
         const history = Storage.get('workoutHistory') || [];
         Storage.set('workoutHistory', history.filter(h => h.id !== id));
