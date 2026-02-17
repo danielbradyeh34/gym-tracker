@@ -48,6 +48,7 @@
       <header class="screen-header">
         <button id="back-btn" class="icon-btn">&larr;</button>
         <h1 id="workout-title"></h1>
+        <button id="plate-btn" class="icon-btn" title="Plate Calculator">&#9878;</button>
         <button id="finish-btn" class="finish-btn">Finish</button>
       </header>
       <div id="workout-content"></div>
@@ -88,8 +89,39 @@
             </span>
           </button>
         </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <div class="settings-item-label">Export Data</div>
+            <div class="settings-item-desc">Download your workout history</div>
+          </div>
+          <button class="settings-btn" id="export-btn">Export</button>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <div class="settings-item-label">Import Data</div>
+            <div class="settings-item-desc">Restore from a backup file</div>
+          </div>
+          <button class="settings-btn" id="import-btn">Import</button>
+        </div>
       </div>
-      <div class="settings-version">v8</div>
+      <div class="settings-version">v9</div>
+    </div>
+
+    <!-- Plate Calculator Overlay -->
+    <div id="plate-calc" class="plate-calc-overlay hidden">
+      <div class="plate-calc-card">
+        <div class="plate-calc-header">
+          <h3>Plate Calculator</h3>
+          <button class="icon-btn" id="plate-close">&times;</button>
+        </div>
+        <div class="plate-calc-input">
+          <button class="step-btn step-down" id="plate-down">&minus;</button>
+          <input type="number" id="plate-target" inputmode="decimal" placeholder="0">
+          <button class="step-btn step-up" id="plate-up">+</button>
+        </div>
+        <div class="plate-calc-bar">Bar: 20kg</div>
+        <div id="plate-result"></div>
+      </div>
     </div>
 
     <!-- Rest Timer Overlay -->

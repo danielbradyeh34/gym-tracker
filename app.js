@@ -330,17 +330,22 @@ function renderWorkout() {
       s.done = !s.done;
       e.currentTarget.classList.toggle('checked', s.done);
 
-      // PR check when marking done
+      // PR check + auto-rest when marking done
       if (s.done) {
+        const exercise = w.exercises.find(e => e.order === ex);
+
+        // PR check
         const weight = parseFloat(s.weight) || 0;
-        if (weight > 0) {
-          const exercise = w.exercises.find(e => e.order === ex);
-          if (exercise) {
-            const currentPR = getPRForExercise(exercise.name);
-            if (weight > currentPR) {
-              showPRBanner(exercise.name, weight);
-            }
+        if (weight > 0 && exercise) {
+          const currentPR = getPRForExercise(exercise.name);
+          if (weight > currentPR) {
+            showPRBanner(exercise.name, weight);
           }
+        }
+
+        // Auto-start rest timer
+        if (exercise && exercise.rest !== '-' && exercise.rest !== 'ALAN') {
+          startTimer(parseRestSeconds(exercise.rest));
         }
       }
 
@@ -366,6 +371,7 @@ function renderWorkout() {
 let timerDoneVibrated = false;
 
 function startTimer(seconds) {
+  if (timerInterval) clearInterval(timerInterval);
   timerSeconds = seconds;
   timerDoneVibrated = false;
   updateTimerDisplay();
@@ -906,6 +912,100 @@ function renderDashboard() {
 
   dashboard.innerHTML = html;
 }
+
+// --- Plate Calculator ---
+function updatePlateCalc() {
+  const target = parseFloat($('#plate-target').value) || 0;
+  const result = $('#plate-result');
+  if (target < 20) {
+    result.innerHTML = '<div class="plate-empty">Enter a weight (min 20kg bar)</div>';
+    return;
+  }
+  if (target === 20) {
+    result.innerHTML = '<div class="plate-empty">Just the bar!</div>';
+    return;
+  }
+  const perSide = (target - 20) / 2;
+  const plates = [25, 20, 15, 10, 5, 2.5, 1.25];
+  let remaining = perSide;
+  const needed = [];
+  plates.forEach(p => {
+    const count = Math.floor(remaining / p + 0.001);
+    if (count > 0) {
+      needed.push({ weight: p, count });
+      remaining -= count * p;
+    }
+  });
+  if (remaining > 0.01) {
+    result.innerHTML = `<div class="plate-empty">Can't make exactly ${target}kg with standard plates</div>`;
+    return;
+  }
+  result.innerHTML = `<div class="plate-side">Each side (${perSide}kg):</div>` +
+    needed.map(p => `<div class="plate-row"><span class="plate-weight">${p.weight}kg</span><span class="plate-count">&times; ${p.count}</span></div>`).join('');
+}
+
+$('#plate-btn').addEventListener('click', () => {
+  $('#plate-calc').classList.remove('hidden');
+  $('#plate-target').value = '';
+  $('#plate-result').innerHTML = '<div class="plate-empty">Enter a weight (min 20kg bar)</div>';
+  setTimeout(() => $('#plate-target').focus(), 100);
+});
+$('#plate-close').addEventListener('click', () => $('#plate-calc').classList.add('hidden'));
+$('#plate-target').addEventListener('input', updatePlateCalc);
+$('#plate-down').addEventListener('click', () => {
+  const input = $('#plate-target');
+  input.value = Math.max(20, (parseFloat(input.value) || 20) - 2.5);
+  updatePlateCalc();
+});
+$('#plate-up').addEventListener('click', () => {
+  const input = $('#plate-target');
+  input.value = (parseFloat(input.value) || 17.5) + 2.5;
+  updatePlateCalc();
+});
+
+// --- Data Export/Import ---
+function exportData() {
+  const history = Storage.get('workoutHistory') || [];
+  const data = JSON.stringify(history, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `gym-tracker-backup-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importData() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data)) throw new Error('Invalid');
+        const current = (Storage.get('workoutHistory') || []).length;
+        confirmAction('Import Data?', `Replace your ${current} sessions with ${data.length} imported sessions?`, () => {
+          Storage.set('workoutHistory', data);
+          renderHome();
+        });
+      } catch {
+        alert('Invalid backup file');
+      }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+}
+
+$('#export-btn').addEventListener('click', exportData);
+$('#import-btn').addEventListener('click', importData);
 
 // --- Theme ---
 function initTheme() {
