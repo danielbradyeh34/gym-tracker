@@ -11,17 +11,18 @@ async function hashPin(pin) {
 
 function mergeHistory(local, cloud) {
   const map = new Map();
+  // Local first so local-only fields (duration, notes) are preserved
+  local.forEach(entry => map.set(entry.id, entry));
   cloud.forEach(row => {
-    map.set(row.id, {
-      id: row.id,
-      workoutId: row.workout_id,
-      workoutName: row.workout_name,
-      timestamp: row.timestamp,
-      exercises: row.exercises
-    });
-  });
-  local.forEach(entry => {
-    if (!map.has(entry.id)) map.set(entry.id, entry);
+    if (!map.has(row.id)) {
+      map.set(row.id, {
+        id: row.id,
+        workoutId: row.workout_id,
+        workoutName: row.workout_name,
+        timestamp: row.timestamp,
+        exercises: row.exercises
+      });
+    }
   });
   return Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
@@ -269,16 +270,30 @@ $('#back-btn').addEventListener('click', () => {
   currentWorkout = null;
 });
 
+// --- Next workout suggestion ---
+function getNextSuggestedWorkout() {
+  const history = Storage.get('workoutHistory') || [];
+  if (history.length === 0) return WORKOUTS[0].id;
+  const sorted = [...history].sort((a, b) => b.timestamp - a.timestamp);
+  const lastId = sorted[0].workoutId;
+  const cycle = ['push1', 'pull1', 'legs1', 'push2', 'pull2', 'legs2'];
+  const idx = cycle.indexOf(lastId);
+  return cycle[(idx + 1) % cycle.length];
+}
+
 // --- Home screen ---
 function renderHome() {
   renderDashboard();
   const grid = $('#workout-grid');
   const history = Storage.get('workoutHistory') || [];
+  const suggestedId = getNextSuggestedWorkout();
   grid.innerHTML = WORKOUTS.map(w => {
     const type = w.id.replace(/[0-9]/g, '');
+    const isSuggested = w.id === suggestedId;
     const lastEntry = history.filter(h => h.workoutId === w.id).sort((a, b) => b.timestamp - a.timestamp)[0];
     const lastText = lastEntry ? `Last: ${formatDate(lastEntry.timestamp)}` : 'Not started yet';
-    return `<div class="workout-card" data-id="${w.id}" data-type="${type}">
+    return `<div class="workout-card ${isSuggested ? 'suggested' : ''}" data-id="${w.id}" data-type="${type}">
+      ${isSuggested ? '<div class="card-suggested">UP NEXT</div>' : ''}
       <div class="card-name">${w.name}</div>
       <div class="card-count">${w.exercises.length} exercises</div>
       <div class="card-last">${lastText}</div>
@@ -334,6 +349,7 @@ function finishWorkout() {
     workoutId: currentWorkout.id,
     workoutName: currentWorkout.name,
     timestamp: Date.now(),
+    duration: workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 60000) : 0,
     exercises: {}
   };
 
@@ -412,12 +428,22 @@ function showWorkoutSummary({ name, exerciseCount, totalSets, totalVolume, durat
       </div>
     </div>
     ${prsHtml}
+    <textarea class="summary-notes" placeholder="Session notes (optional)..." rows="2" maxlength="200"></textarea>
     <button class="summary-done">Done</button>
   </div>`;
 
   document.body.appendChild(overlay);
 
   overlay.querySelector('.summary-done').addEventListener('click', () => {
+    const notes = overlay.querySelector('.summary-notes').value.trim();
+    if (notes) {
+      const history = Storage.get('workoutHistory') || [];
+      const latest = history[history.length - 1];
+      if (latest) {
+        latest.notes = notes;
+        Storage.set('workoutHistory', history);
+      }
+    }
     overlay.remove();
     showScreen('home');
     $('#bottom-nav').style.display = 'flex';
@@ -445,6 +471,7 @@ function renderWorkout() {
   html += '<p class="section-label" style="margin-top:20px">Working Sets</p>';
   w.exercises.forEach(ex => {
     const numSets = parseSetsCount(ex.setsConfig);
+    const repRanges = parseRepRanges(ex.setsConfig);
     const lastSession = getLastSession(w.id, ex.order);
     if (!currentSession[ex.order]) {
       // Pre-fill with last session's weights AND reps
@@ -497,8 +524,10 @@ function renderWorkout() {
                   value="${s.weight}" data-ex="${ex.order}" data-set="${i}" data-field="weight">
                 <button class="step-btn step-up" data-ex="${ex.order}" data-set="${i}" data-field="weight" data-step="2.5">+</button>
               </div>
-              <input class="set-input reps-input" type="number" inputmode="numeric" placeholder="reps"
-                value="${s.reps}" data-ex="${ex.order}" data-set="${i}" data-field="reps">
+              <input class="set-input reps-input" type="number" inputmode="numeric"
+                placeholder="${repRanges[i] ? (repRanges[i].min === repRanges[i].max ? repRanges[i].min : repRanges[i].min + '-' + repRanges[i].max) : 'reps'}"
+                value="${s.reps}" data-ex="${ex.order}" data-set="${i}" data-field="reps"
+                data-min="${repRanges[i]?.min || ''}" data-max="${repRanges[i]?.max || ''}">
               <button class="set-check ${s.done ? 'checked' : ''}"
                 data-ex="${ex.order}" data-set="${i}">&#10003;</button>
             </div>
@@ -530,7 +559,30 @@ function renderWorkout() {
   content.querySelectorAll('.set-input').forEach(input => {
     input.addEventListener('input', (e) => {
       const { ex, set, field } = e.target.dataset;
-      currentSession[ex].sets[parseInt(set)][field] = e.target.value;
+      const setIdx = parseInt(set);
+      currentSession[ex].sets[setIdx][field] = e.target.value;
+
+      // Auto-fill weight: first set fills empty remaining sets
+      if (field === 'weight' && setIdx === 0 && e.target.value) {
+        currentSession[ex].sets.forEach((s, idx) => {
+          if (idx > 0 && !s.weight) {
+            s.weight = e.target.value;
+            const inp = content.querySelector(`.set-input[data-ex="${ex}"][data-set="${idx}"][data-field="weight"]`);
+            if (inp) inp.value = e.target.value;
+          }
+        });
+      }
+
+      // Rep range indicator
+      if (field === 'reps') {
+        const min = parseInt(e.target.dataset.min);
+        const max = parseInt(e.target.dataset.max);
+        const val = parseInt(e.target.value);
+        e.target.classList.remove('reps-in-range', 'reps-out-range');
+        if (val && !isNaN(min) && !isNaN(max)) {
+          e.target.classList.add(val >= min && val <= max ? 'reps-in-range' : 'reps-out-range');
+        }
+      }
     });
   });
 
@@ -542,9 +594,19 @@ function renderWorkout() {
       const current = parseFloat(currentSession[ex].sets[setIdx][field]) || 0;
       const newVal = Math.max(0, current + parseFloat(step));
       currentSession[ex].sets[setIdx][field] = newVal.toString();
-      // Update the input next to this button
       const input = btn.parentElement.querySelector('.set-input');
       input.value = newVal;
+
+      // Auto-fill weight from first set
+      if (field === 'weight' && setIdx === 0) {
+        currentSession[ex].sets.forEach((s, idx) => {
+          if (idx > 0 && !s.weight) {
+            s.weight = newVal.toString();
+            const inp = content.querySelector(`.set-input[data-ex="${ex}"][data-set="${idx}"][data-field="weight"]`);
+            if (inp) inp.value = newVal;
+          }
+        });
+      }
     });
   });
 
@@ -672,7 +734,8 @@ function renderHistory() {
           <span class="history-entry-name">${entry.workoutName}</span>
           <span class="history-entry-badge" style="background:${colors[type] || 'var(--accent)'}">${type.toUpperCase()}</span>
         </div>
-        <div class="history-entry-stats">${exerciseCount} exercises &middot; ${totalSets} sets logged</div>
+        <div class="history-entry-stats">${entry.duration ? entry.duration + 'm &middot; ' : ''}${exerciseCount} exercises &middot; ${totalSets} sets logged</div>
+        ${entry.notes ? `<div class="history-entry-notes">${entry.notes}</div>` : ''}
         <div class="history-detail">`;
 
       Object.values(entry.exercises).forEach(ex => {
@@ -839,6 +902,23 @@ function parseSetsCount(config) {
   }
 
   return Math.max(total, 1);
+}
+
+function parseRepRanges(config) {
+  const ranges = [];
+  const hasPump = config.toLowerCase().includes('pump');
+  if (hasPump) ranges.push({ min: 15, max: 25 });
+  const cleaned = config.replace(/pump\s*set\s*\+/i, '').trim();
+  cleaned.split(',').forEach(part => {
+    const m = part.match(/(\d+)\s*x\s*(\d+)(?:\s*-\s*(\d+))?/i);
+    if (m) {
+      const count = parseInt(m[1]);
+      const min = parseInt(m[2]);
+      const max = m[3] ? parseInt(m[3]) : min;
+      for (let i = 0; i < count; i++) ranges.push({ min, max });
+    }
+  });
+  return ranges;
 }
 
 function parseRestSeconds(rest) {
@@ -1378,6 +1458,29 @@ Storage.init().then(() => {
     updateSyncStatus();
   }
 });
+
+// --- Swipe back from workout ---
+(function() {
+  let touchStartX = 0;
+  let touchStartY = 0;
+  const ws = document.getElementById('screen-workout');
+
+  ws.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  ws.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+    // Swipe right from left edge, mostly horizontal
+    if (touchStartX < 40 && dx > 80 && dy < 100) {
+      showScreen('home');
+      currentWorkout = null;
+      $('#bottom-nav').style.display = 'flex';
+    }
+  }, { passive: true });
+})();
 
 // Register service worker
 if ('serviceWorker' in navigator) {

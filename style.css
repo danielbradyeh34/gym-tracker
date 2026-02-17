@@ -1296,3 +1296,66 @@ html, body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Next Workout Suggestion */
+.workout-card.suggested {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.card-suggested {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+/* Rep Range Indicator */
+.reps-in-range {
+  border-color: #43a047 !important;
+  background: rgba(67, 160, 71, 0.1);
+}
+.reps-out-range {
+  border-color: #ef6c00 !important;
+  background: rgba(239, 108, 0, 0.1);
+}
+
+/* Summary Notes */
+.summary-notes {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  margin-bottom: 16px;
+  -webkit-appearance: none;
+}
+.summary-notes:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.summary-notes::placeholder {
+  color: var(--text-dim);
+}
+
+/* History Notes */
+.history-entry-notes {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-top: 4px;
+  padding-left: 2px;
+}
+
+/* Screen Transitions */
+.screen.active {
+  animation: screenIn 0.2s ease-out;
+}
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
