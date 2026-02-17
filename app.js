@@ -1,12 +1,86 @@
-// --- Storage helpers ---
-const Storage = {
-  get(key) {
-    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
-  },
-  set(key, val) {
-    localStorage.setItem(key, JSON.stringify(val));
+// --- Storage helpers (IndexedDB-backed with in-memory cache) ---
+const Storage = (() => {
+  const DB_NAME = 'gym-tracker-db';
+  const STORE = 'data';
+  let _db = null;
+  const _cache = {};
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
   }
-};
+
+  function idbGet(store, key) {
+    return new Promise((resolve, reject) => {
+      const r = store.get(key);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+  }
+
+  function idbGetAllKeys(store) {
+    return new Promise((resolve, reject) => {
+      const r = store.getAllKeys();
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+  }
+
+  return {
+    async init() {
+      try {
+        _db = await openDB();
+        const tx = _db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const keys = await idbGetAllKeys(store);
+        for (const key of keys) {
+          _cache[key] = await idbGet(store, key);
+        }
+        // Migrate from localStorage if IndexedDB was empty
+        if (keys.length === 0) {
+          for (const lsKey of ['workoutHistory', 'theme']) {
+            try {
+              const val = JSON.parse(localStorage.getItem(lsKey));
+              if (val != null) {
+                _cache[lsKey] = val;
+                this.set(lsKey, val);
+              }
+            } catch {}
+          }
+          localStorage.removeItem('workoutHistory');
+          localStorage.removeItem('theme');
+        }
+      } catch {
+        // IndexedDB unavailable — fall back to localStorage
+        _db = null;
+        for (const key of ['workoutHistory', 'theme']) {
+          try {
+            const val = JSON.parse(localStorage.getItem(key));
+            if (val != null) _cache[key] = val;
+          } catch {}
+        }
+      }
+    },
+
+    get(key) {
+      return _cache[key] ?? null;
+    },
+
+    set(key, val) {
+      _cache[key] = val;
+      if (_db) {
+        const tx = _db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(val, key);
+      } else {
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+      }
+    }
+  };
+})();
 
 // --- State ---
 let currentWorkout = null;
@@ -1057,8 +1131,10 @@ function toggleTheme() {
 $('#theme-toggle').addEventListener('click', toggleTheme);
 
 // --- Init ---
-initTheme();
-renderHome();
+Storage.init().then(() => {
+  initTheme();
+  renderHome();
+});
 
 // Register service worker
 if ('serviceWorker' in navigator) {
