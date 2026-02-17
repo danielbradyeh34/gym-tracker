@@ -63,10 +63,6 @@ html, body {
   align-items: center;
   gap: 12px;
   padding: 12px 0 16px;
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-  z-index: 10;
 }
 .screen-header h1 {
   font-size: 22px;
