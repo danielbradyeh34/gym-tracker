@@ -1,6 +1,6 @@
-// --- Supabase config (fill in after creating project) ---
-const SUPABASE_URL = ''; // e.g. 'https://xxx.supabase.co'
-const SUPABASE_KEY = ''; // anon key
+// --- Supabase config ---
+const SUPABASE_URL = 'https://lmjnsdavcmtlfzeiosxi.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_NLPLhx3GfeV6IcZC-UBTtQ_uHkmjlFR';
 
 // --- Helpers ---
 async function hashPin(pin) {
