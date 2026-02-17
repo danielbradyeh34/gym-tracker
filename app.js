@@ -1,9 +1,39 @@
-// --- Storage helpers (IndexedDB-backed with in-memory cache) ---
+// --- Supabase config (fill in after creating project) ---
+const SUPABASE_URL = ''; // e.g. 'https://xxx.supabase.co'
+const SUPABASE_KEY = ''; // anon key
+
+// --- Helpers ---
+async function hashPin(pin) {
+  const data = new TextEncoder().encode(pin);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function mergeHistory(local, cloud) {
+  const map = new Map();
+  cloud.forEach(row => {
+    map.set(row.id, {
+      id: row.id,
+      workoutId: row.workout_id,
+      workoutName: row.workout_name,
+      timestamp: row.timestamp,
+      exercises: row.exercises
+    });
+  });
+  local.forEach(entry => {
+    if (!map.has(entry.id)) map.set(entry.id, entry);
+  });
+  return Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+// --- Storage helpers (IndexedDB + Supabase cloud sync) ---
 const Storage = (() => {
   const DB_NAME = 'gym-tracker-db';
   const STORE = 'data';
   let _db = null;
   const _cache = {};
+  let _syncEnabled = false;
+  let _userId = null;
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -27,6 +57,18 @@ const Storage = (() => {
       const r = store.getAllKeys();
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
+    });
+  }
+
+  function sbFetch(path, opts = {}) {
+    return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      ...opts,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': opts.prefer || '',
+        ...opts.headers
+      }
     });
   }
 
@@ -55,7 +97,6 @@ const Storage = (() => {
           localStorage.removeItem('theme');
         }
       } catch {
-        // IndexedDB unavailable — fall back to localStorage
         _db = null;
         for (const key of ['workoutHistory', 'theme']) {
           try {
@@ -63,6 +104,14 @@ const Storage = (() => {
             if (val != null) _cache[key] = val;
           } catch {}
         }
+      }
+
+      // Check for existing user auth and enable sync
+      const auth = _cache['userAuth'];
+      if (auth && SUPABASE_URL && SUPABASE_KEY) {
+        _userId = auth.userId;
+        _syncEnabled = true;
+        this.pullFromCloud().catch(() => {});
       }
     },
 
@@ -78,6 +127,108 @@ const Storage = (() => {
       } else {
         try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
       }
+      if (_syncEnabled && key === 'workoutHistory') {
+        this.pushToCloud(val).catch(() => {});
+      }
+    },
+
+    // --- Cloud sync methods ---
+    async createUser(name, pin) {
+      const hashedPin = await hashPin(pin);
+      const res = await sbFetch('users', {
+        method: 'POST',
+        prefer: 'return=representation',
+        body: JSON.stringify({ name, pin: hashedPin })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        if (err.code === '23505') throw new Error('Name already taken');
+        throw new Error('Failed to create profile');
+      }
+      const [user] = await res.json();
+      _userId = user.id;
+      _syncEnabled = true;
+      this.set('userAuth', { userId: user.id, name });
+      // Push any existing local data to cloud
+      const history = _cache['workoutHistory'];
+      if (history && history.length > 0) {
+        await this.pushToCloud(history).catch(() => {});
+      }
+      return user;
+    },
+
+    async signIn(name, pin) {
+      const hashedPin = await hashPin(pin);
+      const res = await sbFetch(`users?name=eq.${encodeURIComponent(name)}&select=*`);
+      if (!res.ok) throw new Error('Connection failed');
+      const users = await res.json();
+      if (!users.length) throw new Error('User not found');
+      if (users[0].pin !== hashedPin) throw new Error('Incorrect PIN');
+      _userId = users[0].id;
+      _syncEnabled = true;
+      this.set('userAuth', { userId: users[0].id, name });
+      await this.pullFromCloud();
+      return users[0];
+    },
+
+    signOut() {
+      _syncEnabled = false;
+      _userId = null;
+      this.set('userAuth', null);
+      this.set('workoutHistory', []);
+    },
+
+    getCurrentUser() {
+      const auth = _cache['userAuth'];
+      return auth ? { id: auth.userId, name: auth.name } : null;
+    },
+
+    isSyncEnabled() {
+      return _syncEnabled;
+    },
+
+    async pullFromCloud() {
+      if (!_syncEnabled || !_userId) return;
+      try {
+        const res = await sbFetch(`workout_history?user_id=eq.${_userId}&order=timestamp.desc`);
+        if (!res.ok) return;
+        const cloud = await res.json();
+        const local = _cache['workoutHistory'] || [];
+        const merged = mergeHistory(local, cloud);
+        _cache['workoutHistory'] = merged;
+        if (_db) {
+          const tx = _db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).put(merged, 'workoutHistory');
+        }
+      } catch {}
+    },
+
+    async pushToCloud(history) {
+      if (!_syncEnabled || !_userId || !history.length) return;
+      try {
+        const payload = history.map(e => ({
+          id: e.id,
+          user_id: _userId,
+          workout_id: e.workoutId,
+          workout_name: e.workoutName,
+          timestamp: e.timestamp,
+          exercises: e.exercises
+        }));
+        await sbFetch('workout_history', {
+          method: 'POST',
+          prefer: 'resolution=merge-duplicates',
+          body: JSON.stringify(payload)
+        });
+      } catch {}
+    },
+
+    async deleteFromCloud(entryId) {
+      if (!_syncEnabled || !_userId) return;
+      try {
+        await sbFetch(`workout_history?id=eq.${entryId}&user_id=eq.${_userId}`, {
+          method: 'DELETE'
+        });
+      } catch {}
     }
   };
 })();
@@ -555,6 +706,7 @@ function renderHistory() {
       e.stopPropagation();
       confirmAction('Delete this workout session?', 'This cannot be undone.', () => {
         const id = btn.dataset.deleteId;
+        Storage.deleteFromCloud(id);
         const history = Storage.get('workoutHistory') || [];
         Storage.set('workoutHistory', history.filter(h => h.id !== id));
         renderHistory();
@@ -1130,10 +1282,101 @@ function toggleTheme() {
 
 $('#theme-toggle').addEventListener('click', toggleTheme);
 
+// --- Identity Screen ---
+function showIdentityError(msg) {
+  $('#identity-error').textContent = msg;
+}
+
+function setIdentityLoading(loading) {
+  ['identity-create', 'identity-signin', 'identity-skip'].forEach(id => {
+    $(`#${id}`).disabled = loading;
+  });
+}
+
+$('#identity-create').addEventListener('click', async () => {
+  const name = $('#identity-name').value.trim();
+  const pin = $('#identity-pin').value;
+  showIdentityError('');
+  if (!name) return showIdentityError('Enter your name');
+  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) return showIdentityError('PIN must be exactly 4 digits');
+  setIdentityLoading(true);
+  try {
+    await Storage.createUser(name, pin);
+    enterApp();
+  } catch (err) {
+    showIdentityError(err.message);
+    setIdentityLoading(false);
+  }
+});
+
+$('#identity-signin').addEventListener('click', async () => {
+  const name = $('#identity-name').value.trim();
+  const pin = $('#identity-pin').value;
+  showIdentityError('');
+  if (!name) return showIdentityError('Enter your name');
+  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) return showIdentityError('Enter your 4-digit PIN');
+  setIdentityLoading(true);
+  try {
+    await Storage.signIn(name, pin);
+    enterApp();
+  } catch (err) {
+    showIdentityError(err.message);
+    setIdentityLoading(false);
+  }
+});
+
+$('#identity-skip').addEventListener('click', () => {
+  Storage.set('identitySkipped', true);
+  enterApp();
+});
+
+// --- Cloud Sync Settings ---
+function updateSyncStatus() {
+  const user = Storage.getCurrentUser();
+  const desc = $('#cloud-sync-desc');
+  const btn = $('#signout-btn');
+  if (user) {
+    desc.textContent = `Signed in as ${user.name}`;
+    btn.style.display = '';
+  } else {
+    desc.textContent = 'Not signed in';
+    btn.style.display = 'none';
+  }
+}
+
+$('#signout-btn').addEventListener('click', () => {
+  confirmAction('Sign Out?', 'Your local data will be cleared. Make sure you have a backup.', () => {
+    Storage.signOut();
+    updateSyncStatus();
+    renderHome();
+  });
+});
+
 // --- Init ---
-Storage.init().then(() => {
+function enterApp() {
+  $$('.screen').forEach(s => s.classList.remove('active'));
+  $('#screen-home').classList.add('active');
+  $('#bottom-nav').style.display = 'flex';
   initTheme();
   renderHome();
+  updateSyncStatus();
+}
+
+Storage.init().then(() => {
+  initTheme();
+  const user = Storage.getCurrentUser();
+  const skipped = Storage.get('identitySkipped');
+  const hasSupabase = SUPABASE_URL && SUPABASE_KEY;
+
+  if (!user && !skipped && hasSupabase) {
+    // Show identity screen
+    $$('.screen').forEach(s => s.classList.remove('active'));
+    $('#screen-identity').classList.add('active');
+    $('#bottom-nav').style.display = 'none';
+  } else {
+    renderHome();
+    updateSyncStatus();
+  }
 });
 
 // Register service worker

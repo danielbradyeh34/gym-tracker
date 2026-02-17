@@ -33,8 +33,27 @@
       </button>
     </nav>
 
+    <!-- Identity Screen -->
+    <div id="screen-identity" class="screen">
+      <div class="identity-container">
+        <div class="identity-card">
+          <div class="identity-logo">&#128170;</div>
+          <h1>Gym Tracker</h1>
+          <p class="identity-desc">Create a profile to sync your workouts to the cloud, or skip to use locally.</p>
+          <div id="identity-form">
+            <input type="text" id="identity-name" class="identity-input" placeholder="Your name" autocomplete="off" maxlength="30">
+            <input type="tel" id="identity-pin" class="identity-input" placeholder="4-digit PIN" inputmode="numeric" pattern="[0-9]*" maxlength="4">
+            <div id="identity-error" class="identity-error"></div>
+            <button id="identity-create" class="identity-btn primary">Create Profile</button>
+            <button id="identity-signin" class="identity-btn secondary">Sign In</button>
+            <button id="identity-skip" class="identity-btn tertiary">Skip &mdash; local only</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Home Screen -->
-    <div id="screen-home" class="screen active">
+    <div id="screen-home" class="screen">
       <div id="dashboard"></div>
       <div class="workout-grid" id="workout-grid"></div>
     </div>
@@ -106,8 +125,15 @@
           </div>
           <button class="settings-btn" id="import-btn">Import</button>
         </div>
+        <div class="settings-item" id="cloud-sync-item">
+          <div class="settings-item-info">
+            <div class="settings-item-label" id="cloud-sync-label">Cloud Sync</div>
+            <div class="settings-item-desc" id="cloud-sync-desc">Not signed in</div>
+          </div>
+          <button class="settings-btn" id="signout-btn" style="display:none">Sign Out</button>
+        </div>
       </div>
-      <div class="settings-version">v14</div>
+      <div class="settings-version">v15</div>
     </div>
 
     <!-- Plate Calculator Overlay -->
